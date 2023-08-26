@@ -262,7 +262,7 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   position: relative;
 }
 .timeline.contextual > li.descendant {
-  padding-bottom: 1em;
+  padding-bottom: 0em;
 }
 .timeline.contextual
   > li.descendant:not(.thread)
@@ -798,8 +798,8 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 65vh;
-  max-height: 65dvh;
+  max-height: 90vh;
+  max-height: 90dvh;
   counter-increment: index;
   position: relative;
 }
@@ -2231,7 +2231,7 @@ ul.link-list li a .icon {
   } */
   li.timeline-item-carousel {
     width: 95vw;
-    max-width: calc(320px * 3.3);
+    max-width: 70vw;
     transform: translateX(calc(-50% + var(--main-width) / 2));
   }
 }
