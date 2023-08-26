@@ -1844,8 +1844,8 @@ function CustomEmojisModal({
                           <img
                             src={emoji.url || emoji.staticUrl}
                             alt={emoji.shortcode}
-                            width="16"
-                            height="16"
+                            width="32"
+                            height="32"
                             loading="lazy"
                             decoding="async"
                           />
