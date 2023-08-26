@@ -27,7 +27,7 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-          gh release create "auto build" "./dist" \
+          gh release create "auto build" "dist" \
               --repo="$GITHUB_REPOSITORY" \
               --generate-notes \
               --target="production-custom" \
