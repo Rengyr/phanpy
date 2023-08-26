@@ -28,9 +28,10 @@ jobs:
         cache: 'npm'
     - run: npm ci
     - run: npm run build
-    - env:
+    - name: Create release
+      env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }
-    - run: |
+      run: |
           gh release create "auto build" "./dist" \
               --repo="$GITHUB_REPOSITORY" \
               --generate-notes \
