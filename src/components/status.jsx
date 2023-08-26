@@ -1238,12 +1238,12 @@ function Status({
               <Card card={card} instance={currentInstance} />
             )}
         </div>
-        {isSizeLarge && (
+        {(
           <>
             <div class="extra-meta">
               {_deleted ? (
                 <span class="status-deleted-tag">Deleted</span>
-              ) : (
+              ) : isSizeLarge && (
                 <>
                   <Icon
                     icon={visibilityIconsMap[visibility]}
@@ -1351,7 +1351,7 @@ function Status({
                   onClick={bookmarkStatus}
                 />
               </div>
-              <Menu
+              {isSizeLarge && ( <Menu
                 portal={{
                   target:
                     document.querySelector('.status-deck') || document.body,
@@ -1375,6 +1375,7 @@ function Status({
               >
                 {StatusMenuItems}
               </Menu>
+              )}
             </div>
           </>
         )}

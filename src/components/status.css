@@ -1211,7 +1211,7 @@ a.card:is(:hover, :focus) {
 }
 .status.large .actions {
   padding-top: 4px;
-  padding-bottom: 16px;
+  padding-bottom: 8px;
   margin-left: calc(-50px - 16px);
   color: var(--text-insignificant-color);
   border-top: var(--hairline-width) solid var(--outline-color);
@@ -1225,8 +1225,8 @@ a.card:is(:hover, :focus) {
   flex: 1;
 }
 .status .action > button {
-  min-height: 40px;
-  min-width: 40px;
+  min-height: 20px;
+  min-width: 20px;
   padding: 0 8px;
   font-variant-numeric: tabular-nums;
 }
