@@ -915,7 +915,7 @@ function Compose({
                 ? 'Post your reply'
                 : editStatus
                 ? 'Edit your post'
-                : 'What are you doing?'
+                : 'Bark here'
             }
             required={mediaAttachments?.length === 0}
             disabled={uiState === 'loading'}
@@ -1126,7 +1126,7 @@ function Compose({
               class="large"
               disabled={uiState === 'loading'}
             >
-              {replyToStatus ? 'Reply' : editStatus ? 'Update' : 'Post'}
+              {replyToStatus ? 'Reply' : editStatus ? 'Update' : 'Yip'}
             </button>
           </div>
         </form>
