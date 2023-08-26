@@ -23,13 +23,13 @@ jobs:
         cache: 'npm'
     - run: npm ci
     - run: npm run build
-    - uses: montudor/action-zip@v1
-      with:
-        args: zip -qq -r dist.zip dist
+    - name: Zip build
+      run: zip -r dist.zip "./dist"
     - name: Create release
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-          gh release create "dist.zip" \
+          gh release create "auto-build" "dist.zip" \
               --repo="$GITHUB_REPOSITORY" \
+              --target="${{ github.sha }}" \
               --latest
