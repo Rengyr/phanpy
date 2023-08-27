@@ -25,6 +25,10 @@ jobs:
     - run: npm run build
     - name: Zip build
       run: zip -r dist.zip "./dist"
+    - name: Remove old release
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh release delete "auto-build" -y
     - name: Create release
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
