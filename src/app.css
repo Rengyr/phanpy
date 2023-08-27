@@ -261,9 +261,6 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
 .timeline.contextual > li.descendant {
   position: relative;
 }
-.timeline.contextual > li.descendant {
-  padding-bottom: 0em;
-}
 .timeline.contextual
   > li.descendant:not(.thread)
   > :is(.status-link, .status-focus) {
