@@ -25,10 +25,12 @@ jobs:
     - run: npm run build
     - name: Zip build
       run: zip -r dist.zip "./dist"
-    - name: Remove old release
+    - uses: ClementTsang/delete-tag-and-release@v0.3.1
+      with:
+        delete_release: true # default: false
+        tag_name: "auto-build" # tag name to delete
       env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release delete "auto-build" -y
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Create release
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
