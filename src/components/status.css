@@ -639,23 +639,6 @@
   max-width: 100%;
   display: block;
 }
-.status .media-container.media-eq1 .media {
-  display: inline-block;
-  max-width: 100% !important;
-  min-width: 44px;
-  /* width: auto; */
-  min-height: 44px;
-  /* --maxAspectHeight: max(160px, 33vh);
-  --aspectWidth: calc(--width / --height * var(--maxAspectHeight)); */
-  width: min(var(--aspectWidth), var(--width), 100%);
-  max-height: min(var(--height), 33vh);
-}
-.status .media-container.media-eq1 .media[data-orientation='portrait'] {
-  /* width: auto;
-  height: min(var(--height), 45vh);
-  max-height: none; */
-  max-height: min(var(--height), 45vh);
-}
 .status.large .media-container.media-eq1 {
   max-height: min(var(--height), 60vh);
 }
