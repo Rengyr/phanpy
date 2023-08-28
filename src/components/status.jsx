@@ -1298,38 +1298,40 @@ function Status({
                   disabled={!canBoost}
                 />
               </div> */}
-              <MenuConfirm
-                disabled={!canBoost}
-                onClick={confirmBoostStatus}
-                confirmLabel={
-                  <>
-                    <Icon icon="rocket" />
-                    <span>{reblogged ? 'Unboost?' : 'Boost to everyone?'}</span>
-                  </>
-                }
-                menuFooter={
-                  mediaNoDesc &&
-                  !reblogged && (
-                    <div class="footer">
-                      <Icon icon="alert" />
-                      Some media have no descriptions.
-                    </div>
-                  )
-                }
-              >
-                <div class="action has-count">
-                  <StatusButton
-                    checked={reblogged}
-                    title={['Boost', 'Unboost']}
-                    alt={['Boost', 'Boosted']}
-                    class="reblog-button"
-                    icon="rocket"
-                    count={reblogsCount}
-                    // onClick={boostStatus}
-                    disabled={!canBoost}
-                  />
-                </div>
-              </MenuConfirm>
+                <MenuConfirm
+                  disabled={!canBoost}
+                  onClick={confirmBoostStatus}
+                  confirmLabel={
+                      <>
+                        <a href="javascript:void(0)">
+                          <Icon icon="rocket" />
+                          <span >{reblogged ? 'Unboost?' : 'Boost to everyone?'}</span>
+                        </a>
+                     </>
+                  }
+                  menuFooter={
+                    mediaNoDesc &&
+                    !reblogged && (
+                      <div class="footer">
+                        <Icon icon="alert" />
+                        Some media have no descriptions.
+                      </div>
+                    )
+                  }
+                >
+                  <div class="action has-count" onClick={(e) => {e.preventDefault();}}>
+                    <StatusButton
+                      checked={reblogged}
+                      title={['Boost', 'Unboost']}
+                      alt={['Boost', 'Boosted']}
+                      class="reblog-button"
+                      icon="rocket"
+                      count={reblogsCount}
+                      // onClick={boostStatus}
+                      disabled={!canBoost}
+                    />
+                  </div>
+                </MenuConfirm>
               <div class="action has-count">
                 <StatusButton
                   checked={favourited}
