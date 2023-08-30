@@ -4,7 +4,7 @@ var _rollbarConfig = {
   captureUncaught: true,
   captureUnhandledRejections: true,
   enabled: isDev,
-  hostSafeList: ['dev.phanpy.social', 'phanpy.social'],
+  hostSafeList: ['yip.arcticfluff.eu'],
   payload: {
     environment: isDev ? 'development' : 'production',
   },
