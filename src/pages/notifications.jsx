@@ -105,10 +105,7 @@ function Notifications() {
     setUIState('loading');
     (async () => {
       try {
-        const fetchNotificationsPromise = fetchNotifications(firstLoad);
-        const fetchFollowRequestsPromise = fetchFollowRequests();
         const fetchAnnouncementsPromise = fetchAnnouncements();
-
         if (firstLoad) {
           const announcements = await fetchAnnouncementsPromise;
           announcements.sort((a, b) => {
@@ -118,6 +115,12 @@ function Notifications() {
             return bDate - aDate;
           });
           setAnnouncements(announcements);
+        }
+      } catch (e) {} // GoToSocial doesn't have Announcement API implemented and it prevents loading other things if not handled separately
+      try {
+        const fetchNotificationsPromise = fetchNotifications(firstLoad);
+        const fetchFollowRequestsPromise = fetchFollowRequests();
+        if (firstLoad) {
           const requests = await fetchFollowRequestsPromise;
           setFollowRequests(requests);
         }
