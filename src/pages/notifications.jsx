@@ -45,6 +45,7 @@ function Notifications() {
 
   const notificationsIterator = useRef();
   async function fetchNotifications(firstLoad) {
+    let moreToLoad = false;
     if (firstLoad || !notificationsIterator.current) {
       // Reset iterator
       notificationsIterator.current = masto.v1.notifications.list({
@@ -56,11 +57,17 @@ function Notifications() {
     const notifications = allNotifications.value;
 
     if (notifications?.length) {
+      let counter = 0;
       notifications.forEach((notification) => {
+        counter += 1;
         saveStatus(notification.status, instance, {
           skipThreading: true,
         });
       });
+
+      if (counter >= LIMIT) {
+        moreToLoad = true;
+      }
 
       const groupedNotifications = groupNotifications(notifications);
 
@@ -74,7 +81,7 @@ function Notifications() {
 
     states.notificationsShowNew = false;
     states.notificationsLastFetchTime = Date.now();
-    return allNotifications;
+    return moreToLoad;
   }
 
   function fetchFollowRequests() {
@@ -124,10 +131,8 @@ function Notifications() {
           const requests = await fetchFollowRequestsPromise;
           setFollowRequests(requests);
         }
-
-        const { done } = await fetchNotificationsPromise;
-        setShowMore(!done);
-
+        const moreToLoad = await fetchNotificationsPromise;
+        setShowMore(moreToLoad);
         setUIState('default');
       } catch (e) {
         setUIState('error');
