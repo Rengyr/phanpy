@@ -15,7 +15,7 @@ function Mentions({ columnMode, ...props }) {
   const { masto, instance } = api();
   const [searchParams] = columnMode ? [emptySearchParams] : useSearchParams();
   const [stateType, setStateType] = useState(null);
-  const [backupApi, setBackupApi] = useState(false);
+  const [conversationsImplemented, setConversationsImplemented] = useState(true);
   const type = props?.type || searchParams.get('type') || stateType;
 
   const mentionsIterator = useRef();
@@ -65,25 +65,13 @@ function Mentions({ columnMode, ...props }) {
         console.log('First load backupApi', latestConversationItem.current);
       }
       statuses = value?.filter((item) => item.lastStatus && item.type == "mention").map((item) => item.lastStatus);
-      setBackupApi(false);
+      setConversationsImplemented(true);
     }
     catch (e)
     {
-      // For when conversations api is not available
-      if (firstLoad || !conversationsIterator.current) {
-        conversationsIterator.current = masto.v1.notifications.list({
-          limit: LIMIT,
-          types: ['mention'],
-        });
-      }
-      results = await conversationsIterator.current.next();
-      let { value } = results;
-      if (firstLoad && value?.length) {
-        latestConversationItem.current = value[0].status.id;
-        console.log('First load backupApi', latestConversationItem.current);
-      }
-      statuses = value?.filter((item) => item.status && item.type == "mention" && item.status.visibility == "direct").map((item) => item.status);
-      setBackupApi(true);
+      // Not supported api
+      setConversationsImplemented(false);
+      return {...true, value:[]};
     }
     if (statuses?.length) {
       statuses.forEach((status) => {
@@ -106,62 +94,34 @@ function Mentions({ columnMode, ...props }) {
 
   async function checkForUpdates() {
     if (type === 'private') {
-      if (!backupApi)
-      {
-        try {
-          const results = await masto.v1.conversations
-            .list({
-              limit: 1,
-              since_id: latestConversationItem.current,
-            })
-            .next();
-          let { value } = results;
-          console.log(
-            'checkForUpdates PRIVATE',
-            latestConversationItem.current,
-            value,
-          );
-          if (value?.length) {
-            latestConversationItem.current = value[0].lastStatus.id;
-            value = value?.filter((item) => item.lastStatus && item.type == "mention");
-            if (value?.length)
-            {
-              return true;
-            }
-          }
-          return false;
-        } catch (e) {
-          return false;
-        }    
+      if (!conversationsImplemented){
+        return false;
       }
-      else{
-        try {
-          const results = await masto.v1.notifications
-            .list({
-              limit: 1,
-              types: ['mention'],
-              since_id: latestConversationItem.current,
-            })
-            .next();
-          let { value } = results;
-          console.log(
-            'checkForUpdates PRIVATE backupApi',
-            latestConversationItem.current,
-            value,
-          );
-          if (value?.length) {
-            latestConversationItem.current = value[0].id;
-            value = value?.filter((item) => item.status && item.type == "mention" && item.status.visibility == "direct");
-            if (value?.length)
-            {
-              return true;
-            }
+      try {
+        const results = await masto.v1.conversations
+          .list({
+            limit: 1,
+            since_id: latestConversationItem.current,
+          })
+          .next();
+        let { value } = results;
+        console.log(
+          'checkForUpdates PRIVATE',
+          latestConversationItem.current,
+          value,
+        );
+        if (value?.length) {
+          latestConversationItem.current = value[0].lastStatus.id;
+          value = value?.filter((item) => item.lastStatus && item.type == "mention");
+          if (value?.length)
+          {
+            return true;
           }
-          return false;
-        } catch (e) {
-          return false;
-        }   
-      }
+        }
+        return false;
+      } catch (e) {
+        return false;
+      }    
     } else {
       try {
         const results = await masto.v1.notifications
@@ -219,20 +179,38 @@ function Mentions({ columnMode, ...props }) {
     );
   }, [type]);
 
-  return (
-    <Timeline
-      title="Mentions"
-      id="mentions"
-      emptyText="No one mentioned you :("
-      errorText="Unable to load mentions."
-      instance={instance}
-      fetchItems={fetchItems}
-      checkForUpdates={checkForUpdates}
-      useItemID
-      timelineStart={TimelineStart}
-      refresh={type}
-    />
-  );
+  if (!conversationsImplemented && type === 'private') {
+    return (
+      <Timeline
+        title="Mentions"
+        id="mentions"
+        emptyText="Conversation API is not implemented by this instance."
+        errorText="Unable to load mentions."
+        instance={instance}
+        fetchItems={fetchItems}
+        checkForUpdates={checkForUpdates}
+        useItemID
+        timelineStart={TimelineStart}
+        refresh={type}
+      />
+    );
+  }
+  else {
+    return (
+      <Timeline
+        title="Mentions"
+        id="mentions"
+        emptyText="No one mentioned you :("
+        errorText="Unable to load mentions."
+        instance={instance}
+        fetchItems={fetchItems}
+        checkForUpdates={checkForUpdates}
+        useItemID
+        timelineStart={TimelineStart}
+        refresh={type}
+      />
+    );
+  }
 }
 
 export default Mentions;
