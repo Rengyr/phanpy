@@ -169,6 +169,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
               ref={mediaRef}
               src={mediaURL}
               alt={description}
+              title={description}
               width={width}
               height={height}
               data-orientation={orientation}
@@ -191,6 +192,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
           <img
             src={mediaURL}
             alt={description}
+            title={description}
             width={width}
             height={height}
             data-orientation={orientation}
@@ -320,6 +322,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
             <img
               src={previewUrl}
               alt={description}
+              title={description}
               width={width}
               height={height}
               data-orientation={orientation}
@@ -347,6 +350,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
           <img
             src={previewUrl}
             alt={description}
+            title={description}
             width={width}
             height={height}
             data-orientation={orientation}
