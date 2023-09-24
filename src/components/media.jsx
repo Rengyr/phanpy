@@ -191,6 +191,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
         ) : (
           <img
             src={mediaURL}
+            srcset={url + " " + original.width + "w, " + previewUrl + " " + small.width + "w"}
             alt={description}
             title={description}
             width={width}
@@ -217,6 +218,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
               const { src } = e.target;
               if (src === mediaURL) {
                 e.target.src = remoteMediaURL;
+                e.target.srcset = remoteUrl + " " + original.width + "w, " + previewRemoteUrl + " " + small.width + "w";
               }
             }}
           />
