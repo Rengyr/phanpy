@@ -27,6 +27,7 @@ function Timeline({
   errorText,
   useItemID, // use statusID instead of status object, assuming it's already in states
   boostsCarousel,
+  chronologicalCarousel,
   fetchItems = () => {},
   checkForUpdates = () => {},
   checkForUpdatesInterval = 60_000, // 1 minute
@@ -57,6 +58,13 @@ function Timeline({
           if (Array.isArray(value)) {
             if (boostsCarousel) {
               value = groupBoosts(value);
+              if (chronologicalCarousel) {
+                value.sort((a, b) => {
+                  const aDate = new Date(a.createdAt);
+                  const bDate = new Date(b.createdAt);
+                  return bDate - aDate;
+                });
+              }
             }
             value = groupContext(value);
             console.log(value);

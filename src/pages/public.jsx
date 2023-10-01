@@ -91,6 +91,7 @@ function Public({ local, columnMode, ...props }) {
       useItemID
       headerStart={<></>}
       boostsCarousel={snapStates.settings.boostsCarousel}
+      chronologicalCarousel={snapStates.settings.chronologicalCarousel}
       allowFilters
       headerEnd={
         <Menu2

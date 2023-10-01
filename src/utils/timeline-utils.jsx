@@ -4,11 +4,15 @@ export function groupBoosts(values) {
   let newValues = [];
   let boostStash = [];
   let serialBoosts = 0;
+  let latestDate = null;
   for (let i = 0; i < values.length; i++) {
     const item = values[i];
     if (item.reblog && !item.account?.group) {
       boostStash.push(item);
       serialBoosts++;
+      if (!latestDate || item.createdAt > latestDate) {
+        latestDate = item.createdAt;
+      }
     } else {
       newValues.push(item);
       if (serialBoosts < 3) {
@@ -39,6 +43,7 @@ export function groupBoosts(values) {
           id: boostStashID,
           items: boostStash,
           type: 'boosts',
+          createdAt: latestDate,
         },
         ...newValues.slice(half),
       ];

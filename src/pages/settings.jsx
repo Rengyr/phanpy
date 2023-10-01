@@ -237,6 +237,18 @@ function Settings({ onClose }) {
               <label>
                 <input
                   type="checkbox"
+                  checked={snapStates.settings.chronologicalCarousel}
+                  onChange={(e) => {
+                    states.settings.chronologicalCarousel = e.target.checked;
+                  }}
+                />{' '}
+                Insert boost carousel at the place of newest boosted post
+              </label>
+            </li>
+            <li>
+              <label>
+                <input
+                  type="checkbox"
                   checked={snapStates.settings.contentTranslation}
                   onChange={(e) => {
                     const { checked } = e.target;

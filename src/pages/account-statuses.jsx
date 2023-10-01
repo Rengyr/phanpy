@@ -251,6 +251,7 @@ function AccountStatuses() {
       fetchItems={fetchAccountStatuses}
       useItemID
       boostsCarousel={snapStates.settings.boostsCarousel}
+      chronologicalCarousel={snapStates.settings.chronologicalCarousel}
       timelineStart={TimelineStart}
       refresh={excludeReplies + excludeBoosts + tagged + media}
       headerEnd={

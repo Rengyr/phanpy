@@ -125,6 +125,7 @@ function Trending({ columnMode, ...props }) {
       useItemID
       headerStart={<></>}
       boostsCarousel={snapStates.settings.boostsCarousel}
+      chronologicalCarousel={snapStates.settings.chronologicalCarousel}
       allowFilters
       timelineStart={TimelineStart}
       headerEnd={

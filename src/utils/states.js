@@ -46,6 +46,7 @@ const states = proxy({
     shortcutsColumnsMode:
       store.account.get('settings-shortcutsColumnsMode') ?? false,
     boostsCarousel: store.account.get('settings-boostsCarousel') ?? true,
+    chronologicalCarousel: store.account.get('settings-chronologicalCarousel') ?? false,
     contentTranslation:
       store.account.get('settings-contentTranslation') ?? true,
     contentTranslationTargetLanguage:
@@ -73,6 +74,8 @@ export function initStates() {
     store.account.get('settings-shortcutsColumnsMode') ?? false;
   states.settings.boostsCarousel =
     store.account.get('settings-boostsCarousel') ?? true;
+  states.settings.chronologicalCarousel =
+    store.account.get('settings-chronologicalCarousel') ?? false;
   states.settings.contentTranslation =
     store.account.get('settings-contentTranslation') ?? true;
   states.settings.contentTranslationTargetLanguage =
@@ -96,6 +99,9 @@ subscribe(states, (changes) => {
     }
     if (path.join('.') === 'settings.boostsCarousel') {
       store.account.set('settings-boostsCarousel', !!value);
+    }
+    if (path.join('.') === 'settings.chronologicalCarousel') {
+      store.account.set('settings-chronologicalCarousel', !!value);
     }
     if (path.join('.') === 'settings.shortcutsColumnsMode') {
       store.account.set('settings-shortcutsColumnsMode', !!value);

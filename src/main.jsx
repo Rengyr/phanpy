@@ -35,6 +35,7 @@ setTimeout(() => {
 
     // Clean up old settings key
     localStorage.removeItem('settings:boostsCarousel');
+    localStorage.removeItem('settings:chronologicalCarousel');
   } catch (e) {}
 }, 5000);
 
