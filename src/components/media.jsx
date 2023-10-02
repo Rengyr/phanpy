@@ -191,7 +191,7 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
         ) : (
           <img
             src={mediaURL}
-            srcset={url + " " + original.width + "w, " + previewUrl + " " + small.width + "w"}
+            srcset={(original?.width !== undefined ? (url + " " + original?.width + "w") : "") + (original?.width !== undefined && small?.width !== undefined ? ", " : "") + (small?.width !== undefined ? (previewUrl + " " + small.width + "w") : "")}
             alt={description}
             title={description}
             width={width}
@@ -218,7 +218,10 @@ function Media({ media, to, showOriginal, autoAnimate, onClick = () => {} }) {
               const { src } = e.target;
               if (src === mediaURL) {
                 e.target.src = remoteMediaURL;
-                e.target.srcset = remoteUrl + " " + original.width + "w, " + previewRemoteUrl + " " + small.width + "w";
+                srcset = [];
+                if (original?.width !== undefined) srcset.push(remoteUrl + " " + original.width + "w");
+                if (small?.width !== undefined) srcset.push(previewRemoteUrl + " " + small.width + "w");
+                e.target.srcset = srcset.join(", ");
               }
             }}
           />
