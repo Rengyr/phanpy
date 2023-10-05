@@ -13,7 +13,6 @@ import Notification from '../components/notification';
 import { api } from '../utils/api';
 import db from '../utils/db';
 import groupNotifications from '../utils/group-notifications';
-import openCompose from '../utils/open-compose';
 import states, { saveStatus } from '../utils/states';
 import { getCurrentAccountNS } from '../utils/store-utils';
 
@@ -49,24 +48,6 @@ function Home() {
           headerEnd={<NotificationsLink />}
         />
       )}
-      {/* <button
-        // hidden={scrollDirection === 'end' && !nearReachStart}
-        type="button"
-        id="compose-button"
-        onClick={(e) => {
-          if (e.shiftKey) {
-            const newWin = openCompose();
-            if (!newWin) {
-              alert('Looks like your browser is blocking popups.');
-              states.showCompose = true;
-            }
-          } else {
-            states.showCompose = true;
-          }
-        }}
-      >
-        <Icon icon="quill" size="xl" alt="Compose" />
-      </button> */}
     </>
   );
 }
@@ -128,6 +109,15 @@ function NotificationsMenu({ anchorRef, state, onClose }) {
 
       states.notificationsLast = notifications[0];
       states.notifications = groupedNotifications;
+
+      // Update last read marker
+      masto.v1.markers
+        .create({
+          notifications: {
+            lastReadId: notifications[0].id,
+          },
+        })
+        .catch(() => {});
     }
 
     states.notificationsShowNew = false;
