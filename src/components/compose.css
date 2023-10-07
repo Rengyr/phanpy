@@ -576,6 +576,7 @@
 }
 #custom-emojis-sheet .custom-emojis-list button img {
   transition: transform 0.1s ease-out;
+  height: 32px;
 }
 #custom-emojis-sheet .custom-emojis-list button:is(:hover, :focus) img {
   transform: scale(1.5);
