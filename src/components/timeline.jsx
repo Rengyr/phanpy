@@ -17,6 +17,12 @@ import Link from './link';
 import NavMenu from './nav-menu';
 import Status from './status';
 
+const scrollIntoViewOptions = {
+  block: 'nearest',
+  inline: 'center',
+  behavior: 'smooth',
+};
+
 function Timeline({
   title,
   titleComponent,
@@ -119,7 +125,7 @@ function Timeline({
       }
       if (nextItem) {
         nextItem.focus();
-        nextItem.scrollIntoViewIfNeeded?.();
+        nextItem.scrollIntoView(scrollIntoViewOptions);
       }
     } else {
       // If active status is not in viewport, get the topmost status-link in viewport
@@ -129,7 +135,7 @@ function Timeline({
       });
       if (topmostItem) {
         topmostItem.focus();
-        topmostItem.scrollIntoViewIfNeeded?.();
+        topmostItem.scrollIntoView(scrollIntoViewOptions);
       }
     }
   });
@@ -158,7 +164,7 @@ function Timeline({
       }
       if (prevItem) {
         prevItem.focus();
-        prevItem.scrollIntoViewIfNeeded?.();
+        prevItem.scrollIntoView(scrollIntoViewOptions);
       }
     } else {
       // If active status is not in viewport, get the topmost status-link in viewport
@@ -168,7 +174,7 @@ function Timeline({
       });
       if (topmostItem) {
         topmostItem.focus();
-        topmostItem.scrollIntoViewIfNeeded?.();
+        topmostItem.scrollIntoView(scrollIntoViewOptions);
       }
     }
   });
@@ -336,7 +342,13 @@ function Timeline({
               </button>
             )}
         </header>
-        {!!timelineStart && <div class="timeline-start">{timelineStart}</div>}
+        {!!timelineStart && (
+          <div
+            class={`timeline-start ${uiState === 'loading' ? 'loading' : ''}`}
+          >
+            {timelineStart}
+          </div>
+        )}
         {!!items.length ? (
           <>
             <ul class="timeline">

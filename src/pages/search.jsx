@@ -90,7 +90,7 @@ function Search(props) {
         if (authenticated) params.offset = offsetRef.current;
       }
       try {
-        const results = await masto.v2.search(params);
+        const results = await masto.v2.search.fetch(params);
         console.log(results);
         if (type) {
           if (firstLoad) {
@@ -152,7 +152,7 @@ function Search(props) {
         </header>
         <main>
           {!!q && (
-            <div class="filter-bar">
+            <div class={`filter-bar ${uiState === 'loading' ? 'loading' : ''}`}>
               {!!type && (
                 <Link to={`/search${q ? `?q=${encodeURIComponent(q)}` : ''}`}>
                   ‹ All

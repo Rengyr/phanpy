@@ -2,6 +2,7 @@ import { useEffect } from 'preact/hooks';
 
 import { api } from '../utils/api';
 import states from '../utils/states';
+import useLocationChange from '../utils/useLocationChange';
 
 import AccountInfo from './account-info';
 import Icon from './icon';
@@ -16,17 +17,19 @@ function AccountSheet({ account, instance: propInstance, onClose }) {
     }
   }, [account]);
 
+  useLocationChange(onClose);
+
   return (
     <div
       class="sheet"
-      onClick={(e) => {
-        const accountBlock = e.target.closest('.account-block');
-        if (accountBlock) {
-          onClose({
-            destination: 'account-statuses',
-          });
-        }
-      }}
+      // onClick={(e) => {
+      //   const accountBlock = e.target.closest('.account-block');
+      //   if (accountBlock) {
+      //     onClose({
+      //       destination: 'account-statuses',
+      //     });
+      //   }
+      // }}
     >
       {!!onClose && (
         <button type="button" class="sheet-close outer" onClick={onClose}>
@@ -46,7 +49,7 @@ function AccountSheet({ account, instance: propInstance, onClose }) {
               });
               return info;
             } catch (e) {
-              const result = await masto.v2.search({
+              const result = await masto.v2.search.fetch({
                 q: account,
                 type: 'accounts',
                 limit: 1,
@@ -57,7 +60,7 @@ function AccountSheet({ account, instance: propInstance, onClose }) {
               } else if (/https?:\/\/[^/]+\/@/.test(account)) {
                 const accountURL = new URL(account);
                 const acct = accountURL.pathname.replace(/^\//, '');
-                const result = await masto.v2.search({
+                const result = await masto.v2.search.fetch({
                   q: acct,
                   type: 'accounts',
                   limit: 1,
