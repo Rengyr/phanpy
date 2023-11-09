@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { InView } from 'react-intersection-observer';
 import { useSearchParams } from 'react-router-dom';
 import { useSnapshot } from 'valtio';
+import { subscribeKey } from 'valtio/utils';
 
 import AccountBlock from '../components/account-block';
 import FollowRequestButtons from '../components/follow-request-buttons';
@@ -23,6 +24,7 @@ import { getRegistration } from '../utils/push-notifications';
 import shortenNumber from '../utils/shorten-number';
 import states, { saveStatus } from '../utils/states';
 import { getCurrentInstance } from '../utils/store-utils';
+import usePageVisibility from '../utils/usePageVisibility';
 import useScroll from '../utils/useScroll';
 import useTitle from '../utils/useTitle';
 
@@ -135,27 +137,30 @@ function Notifications({ columnMode }) {
   }
 
   const loadNotifications = (firstLoad) => {
+    setShowNew(false);
     setUIState('loading');
     (async () => {
       try {
-        const fetchAnnouncementsPromise = fetchAnnouncements();
-        if (firstLoad) {
-          const announcements = await fetchAnnouncementsPromise;
-          announcements.sort((a, b) => {
-            // Sort by updatedAt first, then createdAt
-            const aDate = new Date(a.updatedAt || a.createdAt);
-            const bDate = new Date(b.updatedAt || b.createdAt);
-            return bDate - aDate;
-          });
-          setAnnouncements(announcements);
-        }
-      } catch (e) {} // GoToSocial doesn't have Announcement API implemented and it prevents loading other things if not handled separately
-      try {
         const fetchNotificationsPromise = fetchNotifications(firstLoad);
-        const fetchFollowRequestsPromise = fetchFollowRequests();
+
         if (firstLoad) {
-          const requests = await fetchFollowRequestsPromise;
-          setFollowRequests(requests);
+          fetchAnnouncements()
+            .then((announcements) => {
+              announcements.sort((a, b) => {
+                // Sort by updatedAt first, then createdAt
+                const aDate = new Date(a.updatedAt || a.createdAt);
+                const bDate = new Date(b.updatedAt || b.createdAt);
+                return bDate - aDate;
+              });
+              setAnnouncements(announcements);
+            })
+            .catch(() => {});
+
+          fetchFollowRequests()
+            .then((requests) => {
+              setFollowRequests(requests);
+            })
+            .catch(() => {});
         }
         const moreToLoad = await fetchNotificationsPromise;
         setShowMore(moreToLoad);
@@ -181,30 +186,56 @@ function Notifications({ columnMode }) {
   //   }
   // }, [nearReachEnd, showMore]);
 
-  const loadUpdates = useCallback(() => {
-    console.log('✨ Load updates', {
-      autoRefresh: snapStates.settings.autoRefresh,
-      scrollTop: scrollableRef.current?.scrollTop === 0,
-      inBackground: inBackground(),
-      notificationsShowNew: snapStates.notificationsShowNew,
-      uiState,
-    });
-    if (
-      snapStates.settings.autoRefresh &&
-      scrollableRef.current?.scrollTop === 0 &&
-      window.__IDLE__ &&
-      !inBackground() &&
-      snapStates.notificationsShowNew &&
-      uiState !== 'loading'
-    ) {
-      loadNotifications(true);
+  const [showNew, setShowNew] = useState(false);
+
+  const loadUpdates = useCallback(
+    ({ disableIdleCheck = false } = {}) => {
+      if (uiState === 'loading') {
+        return;
+      }
+      console.log('✨ Load updates', {
+        autoRefresh: snapStates.settings.autoRefresh,
+        scrollTop: scrollableRef.current?.scrollTop,
+        inBackground: inBackground(),
+        disableIdleCheck,
+      });
+      if (
+        snapStates.settings.autoRefresh &&
+        scrollableRef.current?.scrollTop < 16 &&
+        (disableIdleCheck || window.__IDLE__) &&
+        !inBackground()
+      ) {
+        loadNotifications(true);
+      }
+    },
+    [snapStates.notificationsShowNew, snapStates.settings.autoRefresh, uiState],
+  );
+  // useEffect(loadUpdates, [snapStates.notificationsShowNew]);
+
+  const lastHiddenTime = useRef();
+  usePageVisibility((visible) => {
+    let unsub;
+    if (visible) {
+      const timeDiff = Date.now() - lastHiddenTime.current;
+      if (!lastHiddenTime.current || timeDiff > 1000 * 3) {
+        // 3 seconds
+        loadUpdates({
+          disableIdleCheck: true,
+        });
+      } else {
+        lastHiddenTime.current = Date.now();
+      }
+      unsub = subscribeKey(states, 'notificationsShowNew', (v) => {
+        if (v) {
+          loadUpdates();
+        }
+        setShowNew(v);
+      });
     }
-  }, [
-    snapStates.notificationsShowNew,
-    snapStates.settings.autoRefresh,
-    uiState,
-  ]);
-  useEffect(loadUpdates, [snapStates.notificationsShowNew]);
+    return () => {
+      unsub?.();
+    };
+  });
 
   const todayDate = new Date();
   const yesterdayDate = new Date(todayDate - 24 * 60 * 60 * 1000);
@@ -273,7 +304,7 @@ function Notifications({ columnMode }) {
               {/* <Loader hidden={uiState !== 'loading'} /> */}
             </div>
           </div>
-          {snapStates.notificationsShowNew && uiState !== 'loading' && (
+          {showNew && uiState !== 'loading' && (
             <button
               class="updates-button shiny-pill"
               type="button"
