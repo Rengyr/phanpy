@@ -67,7 +67,12 @@ const contentText = {
 
 const AVATARS_LIMIT = 50;
 
-function Notification({ notification, instance, isStatic }) {
+function Notification({
+  notification,
+  instance,
+  isStatic,
+  disableContextMenu,
+}) {
   const { id, status, account, report, _accounts, _statuses } = notification;
   let { type } = notification;
 
@@ -153,6 +158,7 @@ function Notification({ notification, instance, isStatic }) {
       heading: genericAccountsHeading,
       accounts: _accounts,
       showReactions: type === 'favourite+reblog',
+      excludeRelationshipAttrs: type === 'follow' ? ['followedBy'] : [],
     };
   };
 
@@ -286,7 +292,12 @@ function Notification({ notification, instance, isStatic }) {
                     instance ? `/${instance}/s/${status.id}` : `/s/${status.id}`
                   }
                 >
-                  <Status status={status} size="s" />
+                  <Status
+                    status={status}
+                    size="s"
+                    previewMode
+                    allowContextMenu
+                  />
                 </TruncatedLink>
               </li>
             ))}
@@ -300,25 +311,39 @@ function Notification({ notification, instance, isStatic }) {
                 ? `/${instance}/s/${actualStatusID}`
                 : `/s/${actualStatusID}`
             }
-            onContextMenu={(e) => {
-              const post = e.target.querySelector('.status');
-              if (post) {
-                // Fire a custom event to open the context menu
-                if (e.metaKey) return;
-                e.preventDefault();
-                post.dispatchEvent(
-                  new MouseEvent('contextmenu', {
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                  }),
-                );
-              }
-            }}
+            onContextMenu={
+              !disableContextMenu
+                ? (e) => {
+                    const post = e.target.querySelector('.status');
+                    if (post) {
+                      // Fire a custom event to open the context menu
+                      if (e.metaKey) return;
+                      e.preventDefault();
+                      post.dispatchEvent(
+                        new MouseEvent('contextmenu', {
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                        }),
+                      );
+                    }
+                  }
+                : undefined
+            }
           >
             {isStatic ? (
-              <Status status={actualStatus} size="s" />
+              <Status
+                status={actualStatus}
+                size="s"
+                previewMode
+                allowContextMenu
+              />
             ) : (
-              <Status statusID={actualStatusID} size="s" />
+              <Status
+                statusID={actualStatusID}
+                size="s"
+                previewMode
+                allowContextMenu
+              />
             )}
           </TruncatedLink>
         )}

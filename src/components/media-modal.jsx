@@ -1,15 +1,25 @@
-import { Menu } from '@szhsin/react-menu';
+import { MenuDivider, MenuItem } from '@szhsin/react-menu';
 import { getBlurHashAverageColor } from 'fast-blurhash';
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'preact/hooks';
 import { useHotkeys } from 'react-hotkeys-hook';
 
 import { oklab2rgb, rgb2oklab } from '../utils/color-utils';
+import showToast from '../utils/show-toast';
 import states from '../utils/states';
 
 import Icon from './icon';
 import Link from './link';
 import Media from './media';
+import Menu2 from './menu2';
 import MenuLink from './menu-link';
+
+const { PHANPY_IMG_ALT_API_URL: IMG_ALT_API_URL } = import.meta.env;
 
 function MediaModal({
   mediaAttachments,
@@ -19,6 +29,7 @@ function MediaModal({
   index = 0,
   onClose = () => {},
 }) {
+  const [uiState, setUIState] = useState('default');
   const carouselRef = useRef(null);
 
   const [currentIndex, setCurrentIndex] = useState(index);
@@ -102,6 +113,48 @@ function MediaModal({
     return () => clearTimeout(timer);
   }, []);
 
+  const mediaAccentColors = useMemo(() => {
+    return mediaAttachments?.map((media) => {
+      const { blurhash } = media;
+      if (blurhash) {
+        const averageColor = getBlurHashAverageColor(blurhash);
+        const labAverageColor = rgb2oklab(averageColor);
+        return oklab2rgb([0.6, labAverageColor[1], labAverageColor[2]]);
+      }
+      return null;
+    });
+  }, [mediaAttachments]);
+  const mediaAccentGradient = useMemo(() => {
+    const gap = 5;
+    const range = 100 / mediaAccentColors.length;
+    return (
+      mediaAccentColors
+        ?.map((color, i) => {
+          const start = i * range + gap;
+          const end = (i + 1) * range - gap;
+          if (color) {
+            return `
+            rgba(${color?.join(',')}, 0.4) ${start}%,
+            rgba(${color?.join(',')}, 0.4) ${end}%
+          `;
+          }
+
+          return `
+            transparent ${start}%,
+            transparent ${end}%
+          `;
+        })
+        ?.join(', ') || 'transparent'
+    );
+  }, [mediaAccentColors]);
+
+  let toastRef = useRef(null);
+  useEffect(() => {
+    return () => {
+      toastRef.current?.hideToast?.();
+    };
+  }, []);
+
   return (
     <div
       class={`media-modal-container media-modal-count-${mediaAttachments?.length}`}
@@ -120,26 +173,32 @@ function MediaModal({
             onClose();
           }
         }}
+        style={
+          mediaAttachments.length > 1
+            ? {
+                backgroundAttachment: 'local',
+                backgroundImage: `linear-gradient(
+            to right, ${mediaAccentGradient})`,
+              }
+            : {}
+        }
       >
         {mediaAttachments?.map((media, i) => {
-          const { blurhash } = media;
-          let accentColor;
-          if (blurhash) {
-            const averageColor = getBlurHashAverageColor(blurhash);
-            const labAverageColor = rgb2oklab(averageColor);
-            accentColor = oklab2rgb([
-              0.6,
-              labAverageColor[1],
-              labAverageColor[2],
-            ]);
-          }
+          const accentColor =
+            mediaAttachments.length === 1 ? mediaAccentColors[i] : null;
           return (
             <div
               class="carousel-item"
-              style={{
-                '--accent-color': `rgb(${accentColor?.join(',')})`,
-                '--accent-alpha-color': `rgba(${accentColor?.join(',')}, 0.4)`,
-              }}
+              style={
+                accentColor
+                  ? {
+                      '--accent-color': `rgb(${accentColor?.join(',')})`,
+                      '--accent-alpha-color': `rgba(${accentColor?.join(
+                        ',',
+                      )}, 0.4)`,
+                    }
+                  : {}
+              }
               tabindex="0"
               key={media.id}
               ref={i === currentIndex ? carouselFocusItem : null}
@@ -212,11 +271,10 @@ function MediaModal({
           <span />
         )}
         <span>
-          <Menu
+          <Menu2
             overflow="auto"
             align="end"
             position="anchor"
-            boundingBoxPadding="8 8 8 8"
             gap={4}
             menuClassName="glass-menu"
             menuButton={
@@ -237,7 +295,48 @@ function MediaModal({
               <Icon icon="popout" />
               <span>Open original media</span>
             </MenuLink>
-          </Menu>{' '}
+            {import.meta.env.DEV && // Only dev for now
+              !!states.settings.mediaAltGenerator &&
+              !!IMG_ALT_API_URL &&
+              !!mediaAttachments[currentIndex]?.url &&
+              !mediaAttachments[currentIndex]?.description &&
+              mediaAttachments[currentIndex]?.type === 'image' && (
+                <>
+                  <MenuDivider />
+                  <MenuItem
+                    disabled={uiState === 'loading'}
+                    onClick={() => {
+                      setUIState('loading');
+                      toastRef.current = showToast({
+                        text: 'Attempting to describe image. Please wait...',
+                        duration: -1,
+                      });
+                      (async function () {
+                        try {
+                          const response = await fetch(
+                            `${IMG_ALT_API_URL}?image=${encodeURIComponent(
+                              mediaAttachments[currentIndex]?.url,
+                            )}`,
+                          ).then((r) => r.json());
+                          states.showMediaAlt = {
+                            alt: response.description,
+                          };
+                        } catch (e) {
+                          console.error(e);
+                          showToast('Failed to describe image');
+                        } finally {
+                          setUIState('default');
+                          toastRef.current?.hideToast?.();
+                        }
+                      })();
+                    }}
+                  >
+                    <Icon icon="sparkles2" />
+                    <span>Describe image…</span>
+                  </MenuItem>
+                </>
+              )}
+          </Menu2>{' '}
           <Link
             to={`${instance ? `/${instance}` : ''}/s/${statusID}${
               window.matchMedia('(min-width: calc(40em + 350px))').matches

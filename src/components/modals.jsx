@@ -10,6 +10,7 @@ import states from '../utils/states';
 import AccountSheet from './account-sheet';
 import Compose from './compose';
 import Drafts from './drafts';
+import EmbedModal from './embed-modal';
 import GenericAccounts from './generic-accounts';
 import MediaAltModal from './media-alt-modal';
 import MediaModal from './media-modal';
@@ -176,6 +177,10 @@ export default function Modals() {
           }}
         >
           <GenericAccounts
+            instance={snapStates.showGenericAccounts.instance}
+            excludeRelationshipAttrs={
+              snapStates.showGenericAccounts.excludeRelationshipAttrs
+            }
             onClose={() => (states.showGenericAccounts = false)}
           />
         </Modal>
@@ -192,6 +197,21 @@ export default function Modals() {
             lang={snapStates.showMediaAlt?.lang}
             onClose={() => {
               states.showMediaAlt = false;
+            }}
+          />
+        </Modal>
+      )}
+      {!!snapStates.showEmbedModal && (
+        <Modal
+          onClose={() => {
+            states.showEmbedModal = false;
+          }}
+        >
+          <EmbedModal
+            html={snapStates.showEmbedModal.html}
+            url={snapStates.showEmbedModal.url}
+            onClose={() => {
+              states.showEmbedModal = false;
             }}
           />
         </Modal>

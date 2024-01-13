@@ -8,8 +8,8 @@ import {
   MenuHeader,
   MenuItem,
 } from '@szhsin/react-menu';
-import { decodeBlurHash } from 'fast-blurhash';
-import pThrottle from 'p-throttle';
+import { decodeBlurHash, getBlurHashAverageColor } from 'fast-blurhash';
+import { shallowEqual } from 'fast-equals';
 import { memo } from 'preact/compat';
 import {
   useCallback,
@@ -20,14 +20,13 @@ import {
   useState,
 } from 'preact/hooks';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { InView } from 'react-intersection-observer';
 import { useLongPress } from 'use-long-press';
 import { useSnapshot } from 'valtio';
-import { snapshot } from 'valtio/vanilla';
 
 import AccountBlock from '../components/account-block';
 import EmojiText from '../components/emoji-text';
 import Loader from '../components/loader';
+import Menu2 from '../components/menu2';
 import MenuConfirm from '../components/menu-confirm';
 import Modal from '../components/modal';
 import NameText from '../components/name-text';
@@ -49,9 +48,11 @@ import pmem from '../utils/pmem';
 import safeBoundingBoxPadding from '../utils/safe-bounding-box-padding';
 import shortenNumber from '../utils/shorten-number';
 import showToast from '../utils/show-toast';
+import { speak, supportsTTS } from '../utils/speech';
 import states, { getStatus, saveStatus, statusKey } from '../utils/states';
 import statusPeek from '../utils/status-peek';
 import store from '../utils/store';
+import unfurlMastodonLink from '../utils/unfurl-link';
 import useTruncated from '../utils/useTruncated';
 import visibilityIconsMap from '../utils/visibility-icons-map';
 
@@ -64,11 +65,8 @@ import MenuLink from './menu-link';
 import RelativeTime from './relative-time';
 import TranslationBlock from './translation-block';
 
+const SHOW_COMMENT_COUNT_LIMIT = 280;
 const INLINE_TRANSLATE_LIMIT = 140;
-const throttle = pThrottle({
-  limit: 1,
-  interval: 1000,
-});
 
 function fetchAccount(id, masto) {
   return masto.v1.accounts.$select(id).fetch();
@@ -86,15 +84,38 @@ const isIOS =
   window.ontouchstart !== undefined &&
   /iPad|iPhone|iPod/.test(navigator.userAgent);
 
+const REACTIONS_LIMIT = 80;
+
+function getPollText(poll) {
+  if (!poll?.options?.length) return '';
+  return `📊:\n${poll.options
+    .map(
+      (option) =>
+        `- ${option.title}${
+          option.votesCount >= 0 ? ` (${option.votesCount})` : ''
+        }`,
+    )
+    .join('\n')}`;
+}
+function getPostText(status) {
+  const { spoilerText, content, poll } = status;
+  return (
+    (spoilerText ? `${spoilerText}\n\n` : '') +
+    getHTMLText(content) +
+    getPollText(poll)
+  );
+}
+
 function Status({
   statusID,
   status,
   instance: propInstance,
-  withinContext,
   size = 'm',
-  skeleton,
-  readOnly,
   contentTextWeight,
+  readOnly,
+  enableCommentHint,
+  withinContext,
+  skeleton,
   enableTranslate,
   forceTranslate: _forceTranslate,
   previewMode,
@@ -102,6 +123,8 @@ function Status({
   onMediaClick,
   quoted,
   onStatusLinkClick = () => {},
+  showFollowedTags,
+  allowContextMenu,
 }) {
   if (skeleton) {
     return (
@@ -122,7 +145,7 @@ function Status({
   const { instance: currentInstance } = api();
   const sameInstance = instance === currentInstance;
 
-  let sKey = statusKey(statusID, instance);
+  let sKey = statusKey(statusID || status?.id, instance);
   const snapStates = useSnapshot(states);
   if (!status) {
     status = snapStates.statuses[sKey] || snapStates.statuses[statusID];
@@ -171,6 +194,7 @@ function Status({
     uri,
     url,
     emojis,
+    tags,
     // Non-API props
     _deleted,
     _pinned,
@@ -211,6 +235,7 @@ function Status({
         containerProps={{
           onMouseEnter: debugHover,
         }}
+        showFollowedTags
       />
     );
   }
@@ -246,8 +271,21 @@ function Status({
     const prefs = store.account.get('preferences') || {};
     return !!prefs['reading:expand:spoilers'];
   }, []);
+  const readingExpandMedia = useMemo(() => {
+    // default | show_all | hide_all
+    // Ignore hide_all because it means hide *ALL* media including non-sensitive ones
+    const prefs = store.account.get('preferences') || {};
+    return prefs['reading:expand:media'] || 'default';
+  }, []);
+  // FOR TESTING:
+  // const readingExpandSpoilers = true;
+  // const readingExpandMedia = 'show_all';
   const showSpoiler =
-    previewMode || readingExpandSpoilers || !!snapStates.spoilers[id] || false;
+    previewMode || readingExpandSpoilers || !!snapStates.spoilers[id];
+  const showSpoilerMedia =
+    previewMode ||
+    readingExpandMedia === 'show_all' ||
+    !!snapStates.spoilersMedia[id];
 
   if (reblog) {
     // If has statusID, means useItemID (cached in states)
@@ -293,6 +331,40 @@ function Status({
           size={size}
           contentTextWeight={contentTextWeight}
           readOnly={readOnly}
+          enableCommentHint
+        />
+      </div>
+    );
+  }
+
+  // Check followedTags
+  if (showFollowedTags && !!snapStates.statusFollowedTags[sKey]?.length) {
+    return (
+      <div
+        data-state-post-id={sKey}
+        class="status-followed-tags"
+        onMouseEnter={debugHover}
+      >
+        <div class="status-pre-meta">
+          <Icon icon="hashtag" size="l" />{' '}
+          {snapStates.statusFollowedTags[sKey].slice(0, 3).map((tag) => (
+            <Link
+              key={tag}
+              to={instance ? `/${instance}/t/${tag}` : `/t/${tag}`}
+              class="status-followed-tag-item"
+            >
+              {tag}
+            </Link>
+          ))}
+        </div>
+        <Status
+          status={statusID ? null : status}
+          statusID={statusID ? status.id : null}
+          instance={instance}
+          size={size}
+          contentTextWeight={contentTextWeight}
+          readOnly={readOnly}
+          enableCommentHint
         />
       </div>
     );
@@ -340,7 +412,6 @@ function Status({
   ]);
 
   const [showEdited, setShowEdited] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
 
   const spoilerContentRef = useTruncated();
   const contentRef = useTruncated();
@@ -520,6 +591,55 @@ function Status({
       (l) => language === l || localeMatch([language], [l]),
     );
 
+  const reblogIterator = useRef();
+  const favouriteIterator = useRef();
+  async function fetchBoostedLikedByAccounts(firstLoad) {
+    if (firstLoad) {
+      reblogIterator.current = masto.v1.statuses
+        .$select(statusID)
+        .rebloggedBy.list({
+          limit: REACTIONS_LIMIT,
+        });
+      favouriteIterator.current = masto.v1.statuses
+        .$select(statusID)
+        .favouritedBy.list({
+          limit: REACTIONS_LIMIT,
+        });
+    }
+    const [{ value: reblogResults }, { value: favouriteResults }] =
+      await Promise.allSettled([
+        reblogIterator.current.next(),
+        favouriteIterator.current.next(),
+      ]);
+    if (reblogResults.value?.length || favouriteResults.value?.length) {
+      const accounts = [];
+      if (reblogResults.value?.length) {
+        accounts.push(
+          ...reblogResults.value.map((a) => {
+            a._types = ['reblog'];
+            return a;
+          }),
+        );
+      }
+      if (favouriteResults.value?.length) {
+        accounts.push(
+          ...favouriteResults.value.map((a) => {
+            a._types = ['favourite'];
+            return a;
+          }),
+        );
+      }
+      return {
+        value: accounts,
+        done: reblogResults.done && favouriteResults.done,
+      };
+    }
+    return {
+      value: [],
+      done: true,
+    };
+  }
+
   const menuInstanceRef = useRef();
   const StatusMenuItems = (
     <>
@@ -533,7 +653,7 @@ function Status({
             <span class="ib">
               {repliesCount > 0 && (
                 <span>
-                  <Icon icon="reply" alt="Replies" size="s" />{' '}
+                  <Icon icon="comment2" alt="Replies" size="s" />{' '}
                   <span>{shortenNumber(repliesCount)}</span>
                 </span>
               )}{' '}
@@ -580,7 +700,16 @@ function Status({
       )}
       {(!isSizeLarge || !!editedAt) && <MenuDivider />}
       {isSizeLarge && (
-        <MenuItem onClick={() => setShowReactions(true)}>
+        <MenuItem
+          onClick={() => {
+            states.showGenericAccounts = {
+              heading: 'Boosted/Liked by…',
+              fetchAccounts: fetchBoostedLikedByAccounts,
+              instance,
+              showReactions: true,
+            };
+          }}
+        >
           <Icon icon="react" />
           <span>
             Boosted/Liked by<span class="more-insignificant">…</span>
@@ -683,23 +812,53 @@ function Status({
         </>
       )}
       {enableTranslate ? (
-        <MenuItem
-          disabled={forceTranslate}
-          onClick={() => {
-            setForceTranslate(true);
-          }}
-        >
-          <Icon icon="translate" />
-          <span>Translate</span>
-        </MenuItem>
-      ) : (
-        (!language || differentLanguage) && (
-          <MenuLink
-            to={`${instance ? `/${instance}` : ''}/s/${id}?translate=1`}
+        <div class={supportsTTS ? 'menu-horizontal' : ''}>
+          <MenuItem
+            disabled={forceTranslate}
+            onClick={() => {
+              setForceTranslate(true);
+            }}
           >
             <Icon icon="translate" />
             <span>Translate</span>
-          </MenuLink>
+          </MenuItem>
+          {supportsTTS && (
+            <MenuItem
+              onClick={() => {
+                const postText = getPostText(status);
+                if (postText) {
+                  speak(postText, language);
+                }
+              }}
+            >
+              <Icon icon="speak" />
+              <span>Speak</span>
+            </MenuItem>
+          )}
+        </div>
+      ) : (
+        (!language || differentLanguage) && (
+          <div class={supportsTTS ? 'menu-horizontal' : ''}>
+            <MenuLink
+              to={`${instance ? `/${instance}` : ''}/s/${id}?translate=1`}
+            >
+              <Icon icon="translate" />
+              <span>Translate</span>
+            </MenuLink>
+            {supportsTTS && (
+              <MenuItem
+                onClick={() => {
+                  const postText = getPostText(status);
+                  if (postText) {
+                    speak(postText, language);
+                  }
+                }}
+              >
+                <Icon icon="speak" />
+                <span>Speak</span>
+              </MenuItem>
+            )}
+          </div>
         )
       )}
       {((!isSizeLarge && sameInstance) || enableTranslate) && <MenuDivider />}
@@ -829,7 +988,8 @@ function Status({
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuProps, setContextMenuProps] = useState({});
 
-  const showContextMenu = !isSizeLarge && !previewMode && !_deleted && !quoted;
+  const showContextMenu =
+    allowContextMenu || (!isSizeLarge && !previewMode && !_deleted && !quoted);
 
   // Only iOS/iPadOS browsers don't support contextmenu
   // Some comments report iPadOS might support contextmenu if a mouse is connected
@@ -862,7 +1022,7 @@ function Status({
     },
   );
 
-  const hotkeysEnabled = !readOnly && !previewMode;
+  const hotkeysEnabled = !readOnly && !previewMode && !quoted;
   const rRef = useHotkeys('r, shift+r', replyStatus, {
     enabled: hotkeysEnabled,
   });
@@ -922,6 +1082,28 @@ function Status({
       enabled: hotkeysEnabled && canBoost,
     },
   );
+  const xRef = useHotkeys('x', (e) => {
+    const activeStatus = document.activeElement.closest(
+      '.status-link, .status-focus',
+    );
+    if (activeStatus) {
+      const spoilerButton = activeStatus.querySelector(
+        '.spoiler-button:not(.spoiling)',
+      );
+      if (spoilerButton) {
+        e.stopPropagation();
+        spoilerButton.click();
+      } else {
+        const spoilerMediaButton = activeStatus.querySelector(
+          '.spoiler-media-button:not(.spoiling)',
+        );
+        if (spoilerMediaButton) {
+          e.stopPropagation();
+          spoilerMediaButton.click();
+        }
+      }
+    }
+  });
 
   const displayedMediaAttachments = mediaAttachments.slice(
     0,
@@ -989,6 +1171,70 @@ function Status({
     // );
   }, [showMultipleMediaCaptions, displayedMediaAttachments, language]);
 
+  const isThread = useMemo(() => {
+    return (
+      (!!inReplyToId && inReplyToAccountId === status.account?.id) ||
+      !!snapStates.statusThreadNumber[sKey]
+    );
+  }, [
+    inReplyToId,
+    inReplyToAccountId,
+    status.account?.id,
+    snapStates.statusThreadNumber[sKey],
+  ]);
+
+  const showCommentHint = useMemo(() => {
+    return (
+      enableCommentHint &&
+      !isThread &&
+      !withinContext &&
+      !inReplyToId &&
+      visibility === 'public' &&
+      repliesCount > 0
+    );
+  }, [
+    enableCommentHint,
+    isThread,
+    withinContext,
+    inReplyToId,
+    repliesCount,
+    visibility,
+  ]);
+  const showCommentCount = useMemo(() => {
+    if (
+      card ||
+      poll ||
+      sensitive ||
+      spoilerText ||
+      mediaAttachments?.length ||
+      isThread ||
+      withinContext ||
+      inReplyToId ||
+      repliesCount <= 0
+    ) {
+      return false;
+    }
+    const questionRegex = /[??？︖❓❔⁇⁈⁉¿‽؟]/;
+    const containsQuestion = questionRegex.test(content);
+    if (!containsQuestion) return false;
+    const contentLength = htmlContentLength(content);
+    if (contentLength > 0 && contentLength <= SHOW_COMMENT_COUNT_LIMIT) {
+      return true;
+    }
+  }, [
+    card,
+    poll,
+    sensitive,
+    spoilerText,
+    mediaAttachments,
+    reblog,
+    isThread,
+    withinContext,
+    inReplyToId,
+    repliesCount,
+    content,
+  ]);
+
   return (
     <article
       data-state-post-id={sKey}
@@ -1006,6 +1252,7 @@ function Status({
         fRef.current = nodeRef;
         dRef.current = nodeRef;
         bRef.current = nodeRef;
+        xRef.current = nodeRef;
       }}
       tabindex="-1"
       class={`status ${
@@ -1151,12 +1398,8 @@ function Status({
                     : ''
                 }`}
               >
-                <Icon
-                  icon={visibilityIconsMap[visibility]}
-                  alt={visibilityText[visibility]}
-                  size="s"
-                />{' '}
                 <RelativeTime datetime={createdAtDate} format="micro" />
+                {!previewMode && <Icon icon="more2" class="more" />}
               </Link>
             ) : (
               // <Menu
@@ -1218,8 +1461,7 @@ function Status({
         )}
         {!withinContext && (
           <>
-            {(!!inReplyToId && inReplyToAccountId === status.account?.id) ||
-            !!snapStates.statusThreadNumber[sKey] ? (
+            {isThread ? (
               <div class="status-thread-badge">
                 <Icon icon="thread" size="s" />
                 Thread
@@ -1249,7 +1491,9 @@ function Status({
         <div
           class={`content-container ${
             spoilerText || sensitive ? 'has-spoiler' : ''
-          } ${showSpoiler ? 'show-spoiler' : ''}`}
+          } ${showSpoiler ? 'show-spoiler' : ''} ${
+            showSpoilerMedia ? 'show-media' : ''
+          }`}
           data-content-text-weight={contentTextWeight ? textWeight() : null}
           style={
             (isSizeLarge || contentTextWeight) && {
@@ -1270,86 +1514,97 @@ function Status({
                   <EmojiText text={spoilerText} emojis={emojis} />
                 </p>
               </div>
-              <button
-                class={`light spoiler ${showSpoiler ? 'spoiling' : ''}`}
-                type="button"
-                disabled={readingExpandSpoilers}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (showSpoiler) {
-                    delete states.spoilers[id];
-                  } else {
-                    states.spoilers[id] = true;
-                  }
-                }}
-              >
-                <Icon icon={showSpoiler ? 'eye-open' : 'eye-close'} />{' '}
-                {readingExpandSpoilers
-                  ? 'Content warning'
-                  : showSpoiler
-                  ? 'Show less'
-                  : 'Show more'}
-              </button>
+              {readingExpandSpoilers || previewMode ? (
+                <div class="spoiler-divider">
+                  <Icon icon="eye-open" /> Content warning
+                </div>
+              ) : (
+                <button
+                  class={`light spoiler-button ${
+                    showSpoiler ? 'spoiling' : ''
+                  }`}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (showSpoiler) {
+                      delete states.spoilers[id];
+                      if (!readingExpandSpoilers) {
+                        delete states.spoilersMedia[id];
+                      }
+                    } else {
+                      states.spoilers[id] = true;
+                      if (!readingExpandSpoilers) {
+                        states.spoilersMedia[id] = true;
+                      }
+                    }
+                  }}
+                >
+                  <Icon icon={showSpoiler ? 'eye-open' : 'eye-close'} />{' '}
+                  {showSpoiler ? 'Show less' : 'Show content'}
+                </button>
+              )}
             </>
           )}
-          <div class="content" ref={contentRef} data-read-more={readMoreText}>
-            <div
-              lang={language}
-              dir="auto"
-              class="inner-content"
-              onClick={handleContentLinks({
-                mentions,
-                instance,
-                previewMode,
-                statusURL: url,
-              })}
-              dangerouslySetInnerHTML={{
-                __html: enhanceContent(content, {
-                  emojis,
-                  postEnhanceDOM: (dom) => {
-                    // Remove target="_blank" from links
-                    dom
-                      .querySelectorAll('a.u-url[target="_blank"]')
-                      .forEach((a) => {
-                        if (!/http/i.test(a.innerText.trim())) {
-                          a.removeAttribute('target');
-                        }
-                      });
-                    if (previewMode) return;
-                    // Unfurl Mastodon links
-                    Array.from(
-                      dom.querySelectorAll(
-                        'a[href]:not(.u-url):not(.mention):not(.hashtag)',
-                      ),
-                    )
-                      .filter((a) => {
-                        const url = a.href;
-                        const isPostItself =
-                          url === status.url || url === status.uri;
-                        return !isPostItself && isMastodonLinkMaybe(url);
-                      })
-                      .forEach((a, i) => {
-                        unfurlMastodonLink(currentInstance, a.href).then(
-                          (result) => {
-                            if (!result) return;
+          {!!content && (
+            <div class="content" ref={contentRef} data-read-more={readMoreText}>
+              <div
+                lang={language}
+                dir="auto"
+                class="inner-content"
+                onClick={handleContentLinks({
+                  mentions,
+                  instance,
+                  previewMode,
+                  statusURL: url,
+                })}
+                dangerouslySetInnerHTML={{
+                  __html: enhanceContent(content, {
+                    emojis,
+                    postEnhanceDOM: (dom) => {
+                      // Remove target="_blank" from links
+                      dom
+                        .querySelectorAll('a.u-url[target="_blank"]')
+                        .forEach((a) => {
+                          if (!/http/i.test(a.innerText.trim())) {
                             a.removeAttribute('target');
-                            if (!sKey) return;
-                            if (!Array.isArray(states.statusQuotes[sKey])) {
-                              states.statusQuotes[sKey] = [];
-                            }
-                            if (!states.statusQuotes[sKey][i]) {
-                              states.statusQuotes[sKey].splice(i, 0, result);
-                            }
-                          },
-                        );
-                      });
-                  },
-                }),
-              }}
-            />
-            <QuoteStatuses id={id} instance={instance} level={quoted} />
-          </div>
+                          }
+                        });
+                      // if (previewMode) return;
+                      // Unfurl Mastodon links
+                      // Array.from(
+                      //   dom.querySelectorAll(
+                      //     'a[href]:not(.u-url):not(.mention):not(.hashtag)',
+                      //   ),
+                      // )
+                      //   .filter((a) => {
+                      //     const url = a.href;
+                      //     const isPostItself =
+                      //       url === status.url || url === status.uri;
+                      //     return !isPostItself && isMastodonLinkMaybe(url);
+                      //   })
+                      //   .forEach((a, i) => {
+                      //     unfurlMastodonLink(currentInstance, a.href).then(
+                      //       (result) => {
+                      //         if (!result) return;
+                      //         a.removeAttribute('target');
+                      //         if (!sKey) return;
+                      //         if (!Array.isArray(states.statusQuotes[sKey])) {
+                      //           states.statusQuotes[sKey] = [];
+                      //         }
+                      //         if (!states.statusQuotes[sKey][i]) {
+                      //           states.statusQuotes[sKey].splice(i, 0, result);
+                      //         }
+                      //       },
+                      //     );
+                      //   });
+                    },
+                  }),
+                }}
+              />
+              <QuoteStatuses id={id} instance={instance} level={quoted} />
+            </div>
+          )}
           {!!poll && (
             <Poll
               lang={language}
@@ -1389,42 +1644,33 @@ function Status({
               forceTranslate={forceTranslate || inlineTranslate}
               mini={!isSizeLarge && !withinContext}
               sourceLanguage={language}
-              text={
-                (spoilerText ? `${spoilerText}\n\n` : '') +
-                getHTMLText(content) +
-                (poll?.options?.length
-                  ? `\n\nPoll:\n${poll.options
-                      .map(
-                        (option) =>
-                          `- ${option.title}${
-                            option.votesCount >= 0
-                              ? ` (${option.votesCount})`
-                              : ''
-                          }`,
-                      )
-                      .join('\n')}`
-                  : '')
-              }
+              text={getPostText(status)}
             />
           )}
-          {!spoilerText && sensitive && !!mediaAttachments.length && (
-            <button
-              class={`plain spoiler ${showSpoiler ? 'spoiling' : ''}`}
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (showSpoiler) {
-                  delete states.spoilers[id];
-                } else {
-                  states.spoilers[id] = true;
-                }
-              }}
-            >
-              <Icon icon={showSpoiler ? 'eye-open' : 'eye-close'} /> Sensitive
-              content
-            </button>
-          )}
+          {!previewMode &&
+            sensitive &&
+            !!mediaAttachments.length &&
+            readingExpandMedia !== 'show_all' && (
+              <button
+                class={`plain spoiler-media-button ${
+                  showSpoilerMedia ? 'spoiling' : ''
+                }`}
+                type="button"
+                hidden={!readingExpandSpoilers && !!spoilerText}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (showSpoilerMedia) {
+                    delete states.spoilersMedia[id];
+                  } else {
+                    states.spoilersMedia[id] = true;
+                  }
+                }}
+              >
+                <Icon icon={showSpoilerMedia ? 'eye-open' : 'eye-close'} />{' '}
+                {showSpoilerMedia ? 'Show less' : 'Show media'}
+              </button>
+            )}
           {!!mediaAttachments.length && (
             <MultipleMediaFigure
               lang={language}
@@ -1463,15 +1709,19 @@ function Status({
             </MultipleMediaFigure>
           )}
           {!!card &&
-            card?.url !== status.url &&
-            card?.url !== status.uri &&
             /^https/i.test(card?.url) &&
             !sensitive &&
             !spoilerText &&
             !poll &&
             !mediaAttachments.length &&
             !snapStates.statusQuotes[sKey] && (
-              <Card card={card} instance={currentInstance} />
+              <Card
+                card={card}
+                selfReferential={
+                  card?.url === status.url || card?.url === status.uri
+                }
+                instance={currentInstance}
+              />
             )}
         </div>
         {(
@@ -1489,6 +1739,7 @@ function Status({
                     <time
                       class="created"
                       datetime={createdAtDate.toISOString()}
+                      title={createdAtDate.toLocaleString()}
                     >
                       {createdDateText}
                     </time>
@@ -1590,7 +1841,8 @@ function Status({
                   onClick={bookmarkStatus}
                 />
               </div>
-              {isSizeLarge && ( <Menu
+              {isSizeLarge && (
+              <Menu2
                 portal={{
                   target:
                     document.querySelector('.status-deck') || document.body,
@@ -1599,7 +1851,6 @@ function Status({
                 gap={4}
                 overflow="auto"
                 viewScroll="close"
-                boundingBoxPadding="8 8 8 8"
                 menuButton={
                   <div class="action">
                     <button
@@ -1613,7 +1864,7 @@ function Status({
                 }
               >
                 {StatusMenuItems}
-              </Menu>
+              </Menu2>
               )}
             </div>
           </>
@@ -1642,22 +1893,6 @@ function Status({
           />
         </Modal>
       )}
-      {showReactions && (
-        <Modal
-          class="light"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowReactions(false);
-            }
-          }}
-        >
-          <ReactionsModal
-            statusID={id}
-            instance={instance}
-            onClose={() => setShowReactions(false)}
-          />
-        </Modal>
-      )}
     </article>
   );
 }
@@ -1675,7 +1910,7 @@ function MultipleMediaFigure(props) {
   );
 }
 
-function Card({ card, instance }) {
+function Card({ card, selfReferential, instance }) {
   const snapStates = useSnapshot(states);
   const {
     blurhash,
@@ -1711,7 +1946,7 @@ function Card({ card, instance }) {
   const [cardStatusURL, setCardStatusURL] = useState(null);
   // const [cardStatusID, setCardStatusID] = useState(null);
   useEffect(() => {
-    if (hasText && image && isMastodonLinkMaybe(url)) {
+    if (hasText && image && !selfReferential && isMastodonLinkMaybe(url)) {
       unfurlMastodonLink(instance, url).then((result) => {
         if (!result) return;
         const { id, url } = result;
@@ -1726,7 +1961,7 @@ function Card({ card, instance }) {
         // })();
       });
     }
-  }, [hasText, image]);
+  }, [hasText, image, selfReferential]);
 
   // if (cardStatusID) {
   //   return (
@@ -1736,11 +1971,27 @@ function Card({ card, instance }) {
 
   if (snapStates.unfurledLinks[url]) return null;
 
+  const hasIframeHTML = /<iframe/i.test(html);
+  const handleClick = useCallback(
+    (e) => {
+      if (hasIframeHTML) {
+        e.preventDefault();
+        states.showEmbedModal = {
+          html,
+          url: url || embedUrl,
+        };
+      }
+    },
+    [hasIframeHTML],
+  );
+
   if (hasText && (image || (type === 'photo' && blurhash))) {
     const domain = new URL(url).hostname
       .replace(/^www\./, '')
       .replace(/\/$/, '');
     let blurhashImage;
+    const rgbAverageColor =
+      image && blurhash ? getBlurHashAverageColor(blurhash) : null;
     if (!image) {
       const w = 44;
       const h = 44;
@@ -1762,6 +2013,11 @@ function Card({ card, instance }) {
         class={`card link ${blurhashImage ? '' : size}`}
         lang={language}
         dir="auto"
+        style={{
+          '--average-color':
+            rgbAverageColor && `rgb(${rgbAverageColor.join(',')})`,
+        }}
+        onClick={handleClick}
       >
         <div class="card-image">
           <img
@@ -1800,6 +2056,7 @@ function Card({ card, instance }) {
         target="_blank"
         rel="nofollow noopener noreferrer"
         class="card photo"
+        onClick={handleClick}
       >
         <img
           src={embedUrl}
@@ -1814,42 +2071,46 @@ function Card({ card, instance }) {
         />
       </a>
     );
-  } else if (type === 'video') {
-    if (/youtube/i.test(providerName)) {
-      // Get ID from e.g. https://www.youtube.com/watch?v=[VIDEO_ID]
-      const videoID = url.match(/watch\?v=([^&]+)/)?.[1];
-      if (videoID) {
-        return <lite-youtube videoid={videoID} nocookie></lite-youtube>;
+  } else {
+    if (type === 'video') {
+      if (/youtube/i.test(providerName)) {
+        // Get ID from e.g. https://www.youtube.com/watch?v=[VIDEO_ID]
+        const videoID = url.match(/watch\?v=([^&]+)/)?.[1];
+        if (videoID) {
+          return <lite-youtube videoid={videoID} nocookie></lite-youtube>;
+        }
       }
+      // return (
+      //   <div
+      //     class="card video"
+      //     style={{
+      //       aspectRatio: `${width}/${height}`,
+      //     }}
+      //     dangerouslySetInnerHTML={{ __html: html }}
+      //   />
+      // );
     }
-    return (
-      <div
-        class="card video"
-        style={{
-          aspectRatio: `${width}/${height}`,
-        }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  } else if (hasText && !image) {
-    const domain = new URL(url).hostname.replace(/^www\./, '');
-    return (
-      <a
-        href={cardStatusURL || url}
-        target={cardStatusURL ? null : '_blank'}
-        rel="nofollow noopener noreferrer"
-        class={`card link no-image`}
-        lang={language}
-      >
-        <div class="meta-container">
-          <p class="meta domain">
-            <Icon icon="link" size="s" /> <span>{domain}</span>
-          </p>
-          <p class="title">{title}</p>
-          <p class="meta">{description || providerName || authorName}</p>
-        </div>
-      </a>
-    );
+    if (hasText && !image) {
+      const domain = new URL(url).hostname.replace(/^www\./, '');
+      return (
+        <a
+          href={cardStatusURL || url}
+          target={cardStatusURL ? null : '_blank'}
+          rel="nofollow noopener noreferrer"
+          class={`card link no-image`}
+          lang={language}
+          onClick={handleClick}
+        >
+          <div class="meta-container">
+            <p class="meta domain">
+              <Icon icon="link" size="s" /> <span>{domain}</span>
+            </p>
+            <p class="title">{title}</p>
+            <p class="meta">{description || providerName || authorName}</p>
+          </div>
+        </a>
+      );
+    }
   }
 }
 
@@ -1929,160 +2190,6 @@ function EditedAtModal({
   );
 }
 
-const REACTIONS_LIMIT = 80;
-function ReactionsModal({ statusID, instance, onClose }) {
-  const { masto } = api({ instance });
-  const [uiState, setUIState] = useState('default');
-  const [accounts, setAccounts] = useState([]);
-  const [showMore, setShowMore] = useState(false);
-
-  const reblogIterator = useRef();
-  const favouriteIterator = useRef();
-
-  async function fetchAccounts(firstLoad) {
-    setShowMore(false);
-    setUIState('loading');
-    (async () => {
-      try {
-        if (firstLoad) {
-          reblogIterator.current = masto.v1.statuses
-            .$select(statusID)
-            .rebloggedBy.list({
-              limit: REACTIONS_LIMIT,
-            });
-          favouriteIterator.current = masto.v1.statuses
-            .$select(statusID)
-            .favouritedBy.list({
-              limit: REACTIONS_LIMIT,
-            });
-        }
-        const [{ value: reblogResults }, { value: favouriteResults }] =
-          await Promise.allSettled([
-            reblogIterator.current.next(),
-            favouriteIterator.current.next(),
-          ]);
-        if (reblogResults.value?.length || favouriteResults.value?.length) {
-          if (reblogResults.value?.length) {
-            for (const account of reblogResults.value) {
-              const theAccount = accounts.find((a) => a.id === account.id);
-              if (!theAccount) {
-                accounts.push({
-                  ...account,
-                  _types: ['reblog'],
-                });
-              } else {
-                theAccount._types.push('reblog');
-              }
-            }
-          }
-          if (favouriteResults.value?.length) {
-            for (const account of favouriteResults.value) {
-              const theAccount = accounts.find((a) => a.id === account.id);
-              if (!theAccount) {
-                accounts.push({
-                  ...account,
-                  _types: ['favourite'],
-                });
-              } else {
-                theAccount._types.push('favourite');
-              }
-            }
-          }
-          setAccounts(accounts);
-          setShowMore(!reblogResults.done || !favouriteResults.done);
-        } else {
-          setShowMore(false);
-        }
-        setUIState('default');
-      } catch (e) {
-        console.error(e);
-        setUIState('error');
-      }
-    })();
-  }
-
-  useEffect(() => {
-    fetchAccounts(true);
-  }, []);
-
-  return (
-    <div id="reactions-container" class="sheet">
-      {!!onClose && (
-        <button type="button" class="sheet-close" onClick={onClose}>
-          <Icon icon="x" />
-        </button>
-      )}
-      <header>
-        <h2>Boosted/Liked by…</h2>
-      </header>
-      <main>
-        {accounts.length > 0 ? (
-          <>
-            <ul class="reactions-list">
-              {accounts.map((account) => {
-                const { _types } = account;
-                return (
-                  <li key={account.id + _types}>
-                    <div class="reactions-block">
-                      {_types.map((type) => (
-                        <Icon
-                          icon={
-                            {
-                              reblog: 'rocket',
-                              favourite: 'heart',
-                            }[type]
-                          }
-                          class={`${type}-icon`}
-                        />
-                      ))}
-                    </div>
-                    <AccountBlock account={account} instance={instance} />
-                  </li>
-                );
-              })}
-            </ul>
-            {uiState === 'default' ? (
-              showMore ? (
-                <InView
-                  onChange={(inView) => {
-                    if (inView) {
-                      fetchAccounts();
-                    }
-                  }}
-                >
-                  <button
-                    type="button"
-                    class="plain block"
-                    onClick={() => fetchAccounts()}
-                  >
-                    Show more&hellip;
-                  </button>
-                </InView>
-              ) : (
-                <p class="ui-state insignificant">The end.</p>
-              )
-            ) : (
-              uiState === 'loading' && (
-                <p class="ui-state">
-                  <Loader abrupt />
-                </p>
-              )
-            )}
-          </>
-        ) : uiState === 'loading' ? (
-          <p class="ui-state">
-            <Loader abrupt />
-          </p>
-        ) : uiState === 'error' ? (
-          <p class="ui-state">Unable to load accounts</p>
-        ) : (
-          <p class="ui-state insignificant">No one yet.</p>
-        )}
-      </main>
-    </div>
-  );
-}
-
 function StatusButton({
   checked,
   count,
@@ -2152,116 +2259,6 @@ export function formatDuration(time) {
   }
 }
 
-const denylistDomains = /(twitter|github)\.com/i;
-const failedUnfurls = {};
-
-function _unfurlMastodonLink(instance, url) {
-  const snapStates = snapshot(states);
-  if (denylistDomains.test(url)) {
-    return;
-  }
-  if (failedUnfurls[url]) {
-    return;
-  }
-  const instanceRegex = new RegExp(instance + '/');
-  if (instanceRegex.test(snapStates.unfurledLinks[url]?.url)) {
-    return Promise.resolve(snapStates.unfurledLinks[url]);
-  }
-  console.debug('🦦 Unfurling URL', url);
-
-  let remoteInstanceFetch;
-  let theURL = url;
-
-  // https://elk.zone/domain.com/@stest/123 -> https://domain.com/@stest/123
-  if (/\/\/elk\.[^\/]+\/[^\/]+\.[^\/]+/i.test(theURL)) {
-    theURL = theURL.replace(/elk\.[^\/]+\//i, '');
-  }
-
-  // https://trunks.social/status/domain.com/@stest/123 -> https://domain.com/@stest/123
-  if (/\/\/trunks\.[^\/]+\/status\/[^\/]+\.[^\/]+/i.test(theURL)) {
-    theURL = theURL.replace(/trunks\.[^\/]+\/status\//i, '');
-  }
-
-  // https://phanpy.social/#/domain.com/s/123 -> https://domain.com/statuses/123
-  if (/\/#\/[^\/]+\.[^\/]+\/s\/.+/i.test(theURL)) {
-    const urlAfterHash = theURL.split('/#/')[1];
-    const finalURL = urlAfterHash.replace(/\/s\//i, '/@fakeUsername/');
-    theURL = `https://${finalURL}`;
-  }
-
-  const urlObj = new URL(theURL);
-  const domain = urlObj.hostname;
-  const path = urlObj.pathname;
-  // Regex /:username/:id, where username = @username or @username@domain, id = number
-  const statusRegex = /\/@([^@\/]+)@?([^\/]+)?\/(\d+)$/i;
-  const statusMatch = statusRegex.exec(path);
-  if (statusMatch) {
-    const id = statusMatch[3];
-    const { masto } = api({ instance: domain });
-    remoteInstanceFetch = masto.v1.statuses
-      .$select(id)
-      .fetch()
-      .then((status) => {
-        if (status?.id) {
-          return {
-            status,
-            instance: domain,
-          };
-        } else {
-          throw new Error('No results');
-        }
-      });
-  }
-
-  const { masto } = api({ instance });
-  const mastoSearchFetch = masto.v2.search
-    .fetch({
-      q: theURL,
-      type: 'statuses',
-      resolve: true,
-      limit: 1,
-    })
-    .then((results) => {
-      if (results.statuses.length > 0) {
-        const status = results.statuses[0];
-        return {
-          status,
-          instance,
-        };
-      } else {
-        throw new Error('No results');
-      }
-    });
-
-  function handleFulfill(result) {
-    const { status, instance } = result;
-    const { id } = status;
-    const selfURL = `/${instance}/s/${id}`;
-    console.debug('🦦 Unfurled URL', url, id, selfURL);
-    const data = {
-      id,
-      instance,
-      url: selfURL,
-    };
-    states.unfurledLinks[url] = data;
-    saveStatus(status, instance, {
-      skipThreading: true,
-    });
-    return data;
-  }
-  function handleCatch(e) {
-    failedUnfurls[url] = true;
-  }
-
-  if (remoteInstanceFetch) {
-    return Promise.any([remoteInstanceFetch, mastoSearchFetch])
-      .then(handleFulfill)
-      .catch(handleCatch);
-  } else {
-    return mastoSearchFetch.then(handleFulfill).catch(handleCatch);
-  }
-}
-
 function nicePostURL(url) {
   if (!url) return;
   const urlObj = new URL(url);
@@ -2285,9 +2282,14 @@ function nicePostURL(url) {
   );
 }
 
-const unfurlMastodonLink = throttle(_unfurlMastodonLink);
-
-function FilteredStatus({ status, filterInfo, instance, containerProps = {} }) {
+function FilteredStatus({
+  status,
+  filterInfo,
+  instance,
+  containerProps = {},
+  showFollowedTags,
+}) {
+  const snapStates = useSnapshot(states);
   const {
     id: statusID,
     account: { avatar, avatarStatic, bot, group },
@@ -2314,7 +2316,8 @@ function FilteredStatus({ status, filterInfo, instance, containerProps = {} }) {
   );
 
   const statusPeekRef = useTruncated();
-  const sKey =
+  const sKey = statusKey(status.id, instance);
+  const ssKey =
     statusKey(status.id, instance) +
     ' ' +
     (statusKey(reblog?.id, instance) || '');
@@ -2323,10 +2326,20 @@ function FilteredStatus({ status, filterInfo, instance, containerProps = {} }) {
   const url = instance
     ? `/${instance}/s/${actualStatusID}`
     : `/s/${actualStatusID}`;
+  const isFollowedTags =
+    showFollowedTags && !!snapStates.statusFollowedTags[sKey]?.length;
 
   return (
     <div
-      class={isReblog ? (group ? 'status-group' : 'status-reblog') : ''}
+      class={
+        isReblog
+          ? group
+            ? 'status-group'
+            : 'status-reblog'
+          : isFollowedTags
+          ? 'status-followed-tags'
+          : ''
+      }
       {...containerProps}
       title={statusPeekText}
       onContextMenu={(e) => {
@@ -2335,7 +2348,7 @@ function FilteredStatus({ status, filterInfo, instance, containerProps = {} }) {
       }}
       {...bindLongPressPeek()}
     >
-      <article data-state-post-id={sKey} class="status filtered" tabindex="-1">
+      <article data-state-post-id={ssKey} class="status filtered" tabindex="-1">
         <b
           class="status-filtered-badge clickable badge-meta"
           title={filterTitleStr}
@@ -2358,6 +2371,14 @@ function FilteredStatus({ status, filterInfo, instance, containerProps = {} }) {
             />{' '}
             {isReblog ? (
               'boosted'
+            ) : isFollowedTags ? (
+              <span>
+                {snapStates.statusFollowedTags[sKey].slice(0, 3).map((tag) => (
+                  <span key={tag} class="status-followed-tag-item">
+                    #{tag}
+                  </span>
+                ))}
+              </span>
             ) : (
               <RelativeTime datetime={createdAtDate} format="micro" />
             )}
@@ -2440,10 +2461,19 @@ const QuoteStatuses = memo(({ id, instance, level = 0 }) => {
           instance={q.instance}
           size="s"
           quoted={level + 1}
+          enableCommentHint
         />
       </Link>
     );
   });
 });
 
-export default memo(Status);
+export default memo(Status, (oldProps, newProps) => {
+  // Shallow equal all props except 'status'
+  // This will be pure static until status ID changes
+  const { status, ...restOldProps } = oldProps;
+  const { status: newStatus, ...restNewProps } = newProps;
+  return (
+    status?.id === newStatus?.id && shallowEqual(restOldProps, restNewProps)
+  );
+});

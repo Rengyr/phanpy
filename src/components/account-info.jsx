@@ -29,29 +29,30 @@ import Icon from './icon';
 import Link from './link';
 import ListAddEdit from './list-add-edit';
 import Loader from './loader';
+import Menu2 from './menu2';
 import MenuConfirm from './menu-confirm';
 import Modal from './modal';
 import TranslationBlock from './translation-block';
 
 const MUTE_DURATIONS = [
-  1000 * 60 * 5, // 5 minutes
-  1000 * 60 * 30, // 30 minutes
-  1000 * 60 * 60, // 1 hour
-  1000 * 60 * 60 * 6, // 6 hours
-  1000 * 60 * 60 * 24, // 1 day
-  1000 * 60 * 60 * 24 * 3, // 3 days
-  1000 * 60 * 60 * 24 * 7, // 1 week
+  60 * 5, // 5 minutes
+  60 * 30, // 30 minutes
+  60 * 60, // 1 hour
+  60 * 60 * 6, // 6 hours
+  60 * 60 * 24, // 1 day
+  60 * 60 * 24 * 3, // 3 days
+  60 * 60 * 24 * 7, // 1 week
   0, // forever
 ];
 const MUTE_DURATIONS_LABELS = {
   0: 'Forever',
-  300_000: '5 minutes',
-  1_800_000: '30 minutes',
-  3_600_000: '1 hour',
-  21_600_000: '6 hours',
-  86_400_000: '1 day',
-  259_200_000: '3 days',
-  604_800_000: '1 week',
+  300: '5 minutes',
+  1_800: '30 minutes',
+  3_600: '1 hour',
+  21_600: '6 hours',
+  86_400: '1 day',
+  259_200: '3 days',
+  604_800: '1 week',
 };
 
 const LIMIT = 80;
@@ -603,6 +604,10 @@ function AccountInfo({
                         states.showGenericAccounts = {
                           heading: 'Followers',
                           fetchAccounts: fetchFollowers,
+                          instance,
+                          excludeRelationshipAttrs: isSelf
+                            ? ['followedBy']
+                            : [],
                         };
                       }, 0);
                     }}
@@ -636,6 +641,8 @@ function AccountInfo({
                         states.showGenericAccounts = {
                           heading: 'Following',
                           fetchAccounts: fetchFollowing,
+                          instance,
+                          excludeRelationshipAttrs: isSelf ? ['following'] : [],
                         };
                       }, 0);
                     }}
@@ -906,7 +913,6 @@ function RelatedActions({
   }, [info, isSelf]);
 
   const loading = relationshipUIState === 'loading';
-  const menuInstanceRef = useRef(null);
 
   const [showTranslatedBio, setShowTranslatedBio] = useState(false);
   const [showAddRemoveLists, setShowAddRemoveLists] = useState(false);
@@ -917,7 +923,7 @@ function RelatedActions({
       <div class="actions">
         <span>
           {followedBy ? (
-            <span class="tag">Following you</span>
+            <span class="tag">Follows you</span>
           ) : !!lastStatusAt ? (
             <small class="insignificant">
               Last post:{' '}
@@ -947,8 +953,7 @@ function RelatedActions({
               <span>{privateNote}</span>
             </button>
           )}
-          <Menu
-            instanceRef={menuInstanceRef}
+          <Menu2
             portal={{
               target: document.body,
             }}
@@ -957,16 +962,10 @@ function RelatedActions({
                 // Higher than the backdrop
                 zIndex: 1001,
               },
-              onClick: (e) => {
-                if (e.target === e.currentTarget) {
-                  menuInstanceRef.current?.closeMenu?.();
-                }
-              },
             }}
             align="center"
             position="anchor"
             overflow="auto"
-            boundingBoxPadding="8 8 8 8"
             menuButton={
               <button
                 type="button"
@@ -1215,7 +1214,7 @@ function RelatedActions({
               </MenuItem> */}
               </>
             )}
-          </Menu>
+          </Menu2>
           {!relationship && relationshipUIState === 'loading' && (
             <Loader abrupt />
           )}

@@ -18,7 +18,13 @@
   --purple-color: blueviolet;
   --green-color: darkgreen;
   --orange-color: darkorange;
+  --orange-light-bg-color: color-mix(
+    in srgb,
+    var(--orange-color) 20%,
+    transparent
+  );
   --red-color: orangered;
+  --red-bg-color: color-mix(in lch, var(--red-color) 40%, transparent);
   --bg-color: #fff;
   --bg-faded-color: #f0f2f5;
   --bg-blur-color: #fff9;
@@ -26,6 +32,7 @@
   --text-color: #1c1e21;
   --text-insignificant-color: #1c1e2199;
   --link-color: var(--blue-color);
+  --link-bg-color: #4169e122;
   --link-light-color: #4169e199;
   --link-faded-color: #4169e155;
   --link-bg-hover-color: #f0f2f599;
@@ -48,6 +55,17 @@
   --reply-to-text-color: #b36200;
   --favourite-color: var(--red-color);
   --reply-to-faded-color: #ffa60020;
+  --hashtag-color: LightSeaGreen;
+  --hashtag-faded-color: color-mix(
+    in srgb,
+    var(--hashtag-color) 15%,
+    transparent
+  );
+  --hashtag-text-color: color-mix(
+    in lch,
+    var(--hashtag-color) 40%,
+    var(--text-color) 60%
+  );
   --outline-color: rgba(128, 128, 128, 0.2);
   --outline-hover-color: rgba(128, 128, 128, 0.7);
   --divider-color: rgba(0, 0, 0, 0.1);
@@ -66,12 +84,13 @@
   --private-note-bg-color: color-mix(in srgb, yellow 20%, var(--bg-color));
   --private-note-border-color: rgba(0, 0, 0, 0.2);
 
-  /* Video colors won't change based on color scheme */
+  /* Media colors won't change based on color scheme */
   --media-fg-color: #f0f2f5;
   --media-bg-color: #242526;
   --media-outline-color: color-mix(in lch, var(--media-fg-color), transparent);
 
   --timing-function: cubic-bezier(0.3, 0.5, 0, 1);
+  --spring-timing-funtion: cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @media (min-resolution: 2dppx) {
@@ -199,6 +218,9 @@ button,
   text-decoration: none;
   user-select: none;
 }
+button[hidden] {
+  display: none;
+}
 :is(button, .button) > * {
   vertical-align: middle;
   pointer-events: none;
@@ -235,6 +257,15 @@ button,
 }
 :is(button, .button).plain4:not(:disabled, .disabled):is(:hover, :focus) {
   color: var(--text-color);
+}
+:is(button, .button).plain5 {
+  background-color: transparent;
+  color: var(--link-color);
+  text-decoration: underline;
+  text-decoration-color: var(--link-faded-color);
+}
+:is(button, .button).plain5:not(:disabled, .disabled):is(:hover, :focus) {
+  text-decoration: underline;
 }
 :is(button, .button).light {
   background-color: var(--bg-faded-color);
@@ -308,6 +339,9 @@ select.large,
 button.large {
   font-size: 125%;
   padding: 12px;
+}
+textarea:disabled {
+  background-color: var(--bg-faded-color);
 }
 
 :is(input[type='text'], textarea, select).block {
@@ -411,6 +445,17 @@ kbd {
     transform: translateY(100%);
   }
   100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up-smooth {
+  0% {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  100% {
+    opacity: 1;
     transform: translateY(0);
   }
 }

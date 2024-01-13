@@ -96,7 +96,7 @@ function Media({
 
   const videoRef = useRef();
 
-  let focalBackgroundPosition;
+  let focalPosition;
   if (focus) {
     // Convert focal point to CSS background position
     // Formula from jquery-focuspoint
@@ -105,7 +105,7 @@ function Media({
     // x = 1, y = -1 => 100% 100%
     const x = ((focus.x + 1) / 2) * 100;
     const y = ((1 - focus.y) / 2) * 100;
-    focalBackgroundPosition = `${x.toFixed(0)}% ${y.toFixed(0)}%`;
+    focalPosition = `${x.toFixed(0)}% ${y.toFixed(0)}%`;
   }
 
   const mediaRef = useRef();
@@ -275,7 +275,7 @@ function Media({
                 }}
                 onError={(e) => {
                   const { src } = e.target;
-                  if (src === mediaURL) {
+                  if (src === mediaURL && mediaURL !== remoteMediaURL) {
                     e.target.src = remoteMediaURL;
                   }
                 }}
@@ -293,10 +293,11 @@ function Media({
                 data-orientation={orientation}
                 loading="lazy"
                 style={{
-                  backgroundColor:
-                    rgbAverageColor && `rgb(${rgbAverageColor.join(',')})`,
-                  backgroundPosition: focalBackgroundPosition || 'center',
+                  // backgroundColor:
+                  //   rgbAverageColor && `rgb(${rgbAverageColor.join(',')})`,
+                  // backgroundPosition: focalBackgroundPosition || 'center',
                   // Duration based on width or height in pixels
+                  objectPosition: focalPosition || 'center',
                   // 100px per second (rough estimate)
                   // Clamp between 5s and 120s
                   '--anim-duration': `${Math.min(
@@ -305,12 +306,12 @@ function Media({
                   )}s`,
                 }}
                 onLoad={(e) => {
-                  e.target.closest('.media-image').style.backgroundImage = '';
+                  // e.target.closest('.media-image').style.backgroundImage = '';
                   e.target.dataset.loaded = true;
                 }}
                 onError={(e) => {
                   const { src } = e.target;
-                  if (src === mediaURL) {
+                  if (src === mediaURL && mediaURL !== remoteMediaURL) {
                     e.target.src = remoteMediaURL;
                     srcset = [];
                 if (original?.width !== undefined) srcset.push(remoteUrl + " " + original.width + "w");
@@ -335,6 +336,7 @@ function Media({
     const formattedDuration = formatDuration(original.duration);
     const hoverAnimate = !showOriginal && !autoAnimate && isGIF;
     const autoGIFAnimate = !showOriginal && autoAnimate && isGIF;
+    const showProgress = original.duration > 5;
 
     const videoHTML = `
     <video
@@ -350,6 +352,11 @@ function Media({
       playsinline
       loop="${loopable}"
       ${isGIF ? 'ondblclick="this.paused ? this.play() : this.pause()"' : ''}
+      ${
+        isGIF && showProgress
+          ? "ontimeupdate=\"this.closest('.media-gif') && this.closest('.media-gif').style.setProperty('--progress', `${~~((this.currentTime / this.duration) * 100)}%`)\""
+          : ''
+      }
     ></video>
   `;
 
@@ -358,7 +365,7 @@ function Media({
         <Parent
           class={`media ${className} media-${isGIF ? 'gif' : 'video'} ${
             autoGIFAnimate ? 'media-contain' : ''
-          }`}
+          } ${hoverAnimate ? 'media-hover-animate' : ''}`}
           data-orientation={orientation}
           data-formatted-duration={
             !showOriginal ? formattedDuration : undefined
@@ -438,6 +445,22 @@ function Media({
               playsinline
               loop
               muted
+              onTimeUpdate={
+                showProgress
+                  ? (e) => {
+                      const { target } = e;
+                      const container = target?.closest('.media-gif');
+                      if (container) {
+                        const percentage =
+                          (target.currentTime / target.duration) * 100;
+                        container.style.setProperty(
+                          '--progress',
+                          `${percentage}%`,
+                        );
+                      }
+                    }
+                  : undefined
+              }
             />
           ) : (
             <>

@@ -4,9 +4,11 @@ import { useSnapshot } from 'valtio';
 
 import getTranslateTargetLanguage from '../utils/get-translate-target-language';
 import localeMatch from '../utils/locale-match';
+import { speak, supportsTTS } from '../utils/speech';
 import states from '../utils/states';
 
 import Icon from './icon';
+import Menu2 from './menu2';
 import TranslationBlock from './translation-block';
 
 export default function MediaAltModal({ alt, lang, onClose }) {
@@ -33,7 +35,7 @@ export default function MediaAltModal({ alt, lang, onClose }) {
       <header class="header-grid">
         <h2>Media description</h2>
         <div class="header-side">
-          <Menu
+          <Menu2
             align="end"
             menuButton={
               <button type="button" class="plain4">
@@ -50,7 +52,17 @@ export default function MediaAltModal({ alt, lang, onClose }) {
               <Icon icon="translate" />
               <span>Translate</span>
             </MenuItem>
-          </Menu>
+            {supportsTTS && (
+              <MenuItem
+                onClick={() => {
+                  speak(alt, lang);
+                }}
+              >
+                <Icon icon="speak" />
+                <span>Speak</span>
+              </MenuItem>
+            )}
+          </Menu2>
         </div>
       </header>
       <main lang={lang} dir="auto">

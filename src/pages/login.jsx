@@ -3,12 +3,16 @@ import './login.css';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useSearchParams } from 'react-router-dom';
 
+import logo from '../assets/logo.svg';
+
 import Link from '../components/link';
 import Loader from '../components/loader';
 import instancesListURL from '../data/instances.json?url';
 import { getAuthorizationURL, registerApplication } from '../utils/auth';
 import store from '../utils/store';
 import useTitle from '../utils/useTitle';
+
+const { PHANPY_DEFAULT_INSTANCE: DEFAULT_INSTANCE } = import.meta.env;
 
 function Login() {
   useTitle('Log in');
@@ -17,6 +21,7 @@ function Login() {
   const [uiState, setUIState] = useState('default');
   const [searchParams] = useSearchParams();
   const instance = searchParams.get('instance');
+  const submit = searchParams.get('submit');
   const [instanceText, setInstanceText] = useState(
     instance || cachedInstanceURL?.toLowerCase() || '',
   );
@@ -42,6 +47,7 @@ function Login() {
   // }, []);
 
   const submitInstance = (instanceURL) => {
+    if (!instanceURL) return;
     store.local.set('instanceURL', instanceURL);
 
     (async () => {
@@ -72,23 +78,18 @@ function Login() {
     })();
   };
 
-  const onSubmit = (e) => {
-    e.preventDefault();
-    const { elements } = e.target;
-    let instanceURL = elements.instanceURL.value.toLowerCase();
-    // Remove protocol from instance URL
-    instanceURL = instanceURL.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    // Remove @acct@ or acct@ from instance URL
-    instanceURL = instanceURL.replace(/^@?[^@]+@/, '');
-    if (!/\./.test(instanceURL)) {
-      instanceURL = instancesList.find((instance) =>
-        instance.includes(instanceURL),
-      );
-    }
-    submitInstance(instanceURL);
-  };
+  const cleanInstanceText = instanceText
+    ? instanceText
+        .replace(/^https?:\/\//, '') // Remove protocol from instance URL
+        .replace(/\/+$/, '') // Remove trailing slash
+        .replace(/^@?[^@]+@/, '') // Remove @?acct@
+        .trim()
+    : null;
+  const instanceTextLooksLikeDomain =
+    /[^\s\r\n\t\/\\]+\.[^\s\r\n\t\/\\]+/.test(cleanInstanceText) &&
+    !/[\s\/\\@]/.test(cleanInstanceText);
 
-  const instancesSuggestions = instanceText
+  const instancesSuggestions = cleanInstanceText
     ? instancesList
         .filter((instance) => instance.includes(instanceText))
         .sort((a, b) => {
@@ -106,10 +107,45 @@ function Login() {
         .slice(0, 10)
     : [];
 
+  const selectedInstanceText = instanceTextLooksLikeDomain
+    ? cleanInstanceText
+    : instancesSuggestions?.length
+    ? instancesSuggestions[0]
+    : instanceText
+    ? instancesList.find((instance) => instance.includes(instanceText))
+    : null;
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    // const { elements } = e.target;
+    // let instanceURL = elements.instanceURL.value.toLowerCase();
+    // // Remove protocol from instance URL
+    // instanceURL = instanceURL.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    // // Remove @acct@ or acct@ from instance URL
+    // instanceURL = instanceURL.replace(/^@?[^@]+@/, '');
+    // if (!/\./.test(instanceURL)) {
+    //   instanceURL = instancesList.find((instance) =>
+    //     instance.includes(instanceURL),
+    //   );
+    // }
+    // submitInstance(instanceURL);
+    submitInstance(selectedInstanceText);
+  };
+
+  if (submit) {
+    useEffect(() => {
+      submitInstance(instance || selectedInstanceText);
+    }, []);
+  }
+
   return (
     <main id="login" style={{ textAlign: 'center' }}>
       <form onSubmit={onSubmit}>
-        <h1>Log in</h1>
+        <h1>
+          <img src={logo} alt="" width="80" height="80" />
+          <br />
+          Log in
+        </h1>
         <label>
           <p>Instance</p>
           <input
@@ -132,11 +168,11 @@ function Login() {
           />
           {instancesSuggestions?.length > 0 ? (
             <ul id="instances-suggestions">
-              {instancesSuggestions.map((instance) => (
+              {instancesSuggestions.map((instance, i) => (
                 <li>
                   <button
                     type="button"
-                    class="plain4"
+                    class="plain5"
                     onClick={() => {
                       submitInstance(instance);
                     }}
@@ -147,7 +183,7 @@ function Login() {
               ))}
             </ul>
           ) : (
-            <div id="instances-eg">e.g. &ldquo;mastodon.social&rsquo;</div>
+            <div id="instances-eg">e.g. &ldquo;mastodon.social&rdquo;</div>
           )}
           {/* <datalist id="instances-list">
             {instancesList.map((instance) => (
@@ -161,17 +197,25 @@ function Login() {
           </p>
         )}
         <div>
-          <button class="large" disabled={uiState === 'loading'}>
-            Log in
+          <button
+            disabled={
+              uiState === 'loading' || !instanceText || !selectedInstanceText
+            }
+          >
+            {selectedInstanceText
+              ? `Continue with ${selectedInstanceText}`
+              : 'Continue'}
           </button>{' '}
         </div>
         <Loader hidden={uiState !== 'loading'} />
         <hr />
-        <p>
-          <a href="https://joinmastodon.org/servers" target="_blank">
-            Don't have an account? Create one!
-          </a>
-        </p>
+        {!DEFAULT_INSTANCE && (
+          <p>
+            <a href="https://joinmastodon.org/servers" target="_blank">
+              Don't have an account? Create one!
+            </a>
+          </p>
+        )}
         <p>
           <Link to="/">Go home</Link>
         </p>

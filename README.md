@@ -107,12 +107,6 @@ Prerequisites: Node.js 18+
   - requires `.env.dev` file with `INSTANCES_SOCIAL_SECRET_TOKEN` variable set
 - `npm run sourcemap` - Run `source-map-explorer` on the production build
 
-## Self-hosting
-
-This is a **pure static web app**. You can host it anywhere you want. Build it by running `npm run build` (after `npm install`) and serve the `dist` folder.
-
-Try search for "how to self-host static sites" as there are many ways to do it.
-
 ## Tech stack
 
 - [Vite](https://vitejs.dev/) - Build tool
@@ -122,9 +116,92 @@ Try search for "how to self-host static sites" as there are many ways to do it.
 - [masto.js](https://github.com/neet/masto.js/) - Mastodon API client
 - [Iconify](https://iconify.design/) - Icon library
   - [MingCute icons](https://www.mingcute.com/)
-- Vanilla CSS - *Yes, I'm old school.*
+- Vanilla CSS - _Yes, I'm old school._
 
 Some of these may change in the future. The front-end world is ever-changing.
+
+## Self-hosting
+
+This is a **pure static web app**. You can host it anywhere you want.
+
+Two ways (choose one):
+
+### Easy way
+
+Go to [Releases](https://github.com/cheeaun/phanpy/releases) and download the latest `phanpy-dist.zip` or `phanpy-dist.tar.gz`. It's pre-built so don't need to run any install/build commands. Extract it. Serve the folder of extracted files.
+
+### Custom-build way
+
+Requires [Node.js](https://nodejs.org/).
+
+Download or `git clone` this repository. Use `production` branch for *stable* releases, `main` for *latest*. Build it by running `npm run build` (after `npm install`). Serve the `dist` folder.
+
+Customization can be done by passing environment variables to the build command. Examples:
+
+```bash
+PHANPY_APP_TITLE="Phanpy Dev" \
+    PHANPY_WEBSITE="https://dev.phanpy.social" \
+    npm run build
+```
+
+```bash
+PHANPY_DEFAULT_INSTANCE=hachyderm.io \
+    PHANPY_DEFAULT_INSTANCE_REGISTRATION_URL=https://hachyderm.io/auth/sign_up \
+    PHANPY_PRIVACY_POLICY_URL=https://hachyderm.io/privacy-policy \
+    npm run build
+```
+
+It's also possible to set them in the `.env` file.
+
+Available variables:
+
+- `PHANPY_CLIENT_NAME` (optional, default: `Phanpy`) affects:
+  - Web page title, shown in the browser window or tab title
+  - App title, when installed as PWA, shown in the Home screen, macOS dock, Windows taskbar, etc
+  - OpenGraph card title, when shared on social networks
+  - Client name, when [registering the app for authentication](https://docs.joinmastodon.org/client/token/#app) and shown as client used on posts in some apps/clients
+- `PHANPY_WEBSITE` (optional but recommended, default: `https://phanpy.social`) affects:
+  - Canonical URL of the website
+  - OpenGraph card URL, when shared on social networks
+  - Root path for the OpenGraph card image
+  - Client URL, when [registering the app for authentication](https://docs.joinmastodon.org/client/token/#app) and shown as client used on posts in some apps/clients
+- `PHANPY_DEFAULT_INSTANCE` (optional, no defaults):
+  - e.g. 'mastodon.social', without `https://`
+  - Default instance for log-in
+  - When logging in, the user will be redirected instantly to the instance's authentication page instead of having to manually type the instance URL and submit
+- `PHANPY_DEFAULT_INSTANCE_REGISTRATION_URL` (optional, no defaults):
+  - URL of the instance registration page
+  - E.g. `https://mastodon.social/auth/sign_up`
+- `PHANPY_PRIVACY_POLICY_URL` (optional, default to official instance's privacy policy):
+  - URL of the privacy policy page
+  - May specify the instance's own privacy policy
+- `PHANPY_LINGVA_INSTANCES` (optional, space-separated list, default: `lingva.phanpy.social [...hard-coded list of fallback instances]`):
+  - Specify a space-separated list of instances. First will be used as default before falling back to the subsequent instances. If there's only 1 instance, means no fallback.
+  - May specify a self-hosted Lingva instance, powered by either [lingva-translate](https://github.com/thedaviddelta/lingva-translate) or [lingva-api](https://github.com/cheeaun/lingva-api)
+  - List of fallback instances hard-coded in `/.env`
+  - [↗️ List of lingva-translate instances](https://github.com/thedaviddelta/lingva-translate?tab=readme-ov-file#instances)
+
+### Static site hosting
+
+Try online search for "how to self-host static sites" as there are many ways to do it.
+
+#### Lingva-translate or lingva-api hosting
+
+See documentation for [lingva-translate](https://github.com/thedaviddelta/lingva-translate) or [lingva-api](https://github.com/cheeaun/lingva-api).
+
+## Community deployments
+
+These are self-hosted by other wonderful folks.
+
+- [ferengi.one](https://ferengi.one/) by [@david@collantes.social](https://collantes.social/@david)
+- [phanpy.blaede.family](https://phanpy.blaede.family/) by [@cassidy@blaede.family](https://mastodon.blaede.family/@cassidy)
+- [phanpy.mstdn.mx](https://phanpy.mstdn.mx/) by [@maop@mstdn.mx](https://mstdn.mx/@maop)
+- [phanpy.vmst.io](https://phanpy.vmst.io/) by [@vmstan@vmst.io](https://vmst.io/@vmstan)
+- [phanpy.gotosocial.social](https://phanpy.gotosocial.social/) by [@admin@gotosocial.social](https://gotosocial.social/@admin)
+- [phanpy.bauxite.tech](https://phanpy.bauxite.tech) by [@b4ux1t3@hachyderm.io](https://hachyderm.io/@b4ux1t3)
+- [phanpy.hear-me.social](https://phanpy.hear-me.social) by [@admin@hear-me.social](https://hear-me.social/@admin)
+
+> Note: Add yours by creating a pull request.
 
 ## Costs
 
@@ -172,6 +249,7 @@ And here I am. Building a Mastodon web client.
 - [Litterbox](https://litterbox.koyu.space/)
 - [Statuzer](https://statuzer.com/)
 - [Tusked](https://tusked.app/)
+- [Mastodon Glitch Edition (standalone frontend)](https://iceshrimp.dev/iceshrimp/masto-fe-standalone)
 - [More...](https://github.com/hueyy/awesome-mastodon/#clients)
 
 ## 💁‍♂️ Notice to all other social media client developers
