@@ -23,7 +23,7 @@ import states from '../utils/states';
 import store from '../utils/store';
 
 const DEFAULT_TEXT_SIZE = 16;
-const TEXT_SIZES = [15, 16, 17, 18, 19, 20];
+const TEXT_SIZES = [14, 15, 16, 17, 18, 19, 20];
 const {
   PHANPY_WEBSITE: WEBSITE,
   PHANPY_PRIVACY_POLICY_URL: PRIVACY_POLICY_URL,
@@ -445,7 +445,7 @@ function Settings({ onClose }) {
                 </div>
               </div>
             </li>
-            {!!IMG_ALT_API_URL && (
+            {!!IMG_ALT_API_URL && authenticated && (
               <li>
                 <label>
                   <input
@@ -472,6 +472,39 @@ function Settings({ onClose }) {
                       img-alt-api
                     </a>
                     . May not work well. Only for images and in English.
+                  </small>
+                </div>
+              </li>
+            )}
+            {authenticated && (
+              <li>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={
+                      snapStates.settings.shortcutSettingsCloudImportExport
+                    }
+                    onChange={(e) => {
+                      states.settings.shortcutSettingsCloudImportExport =
+                        e.target.checked;
+                    }}
+                  />{' '}
+                  "Cloud" import/export for shortcuts settings{' '}
+                  <Icon icon="cloud" class="more-insignificant" />
+                </label>
+                <div class="sub-section insignificant">
+                  <small>
+                    ⚠️⚠️⚠️ Very experimental.
+                    <br />
+                    Stored in your own profile’s notes. Profile (private) notes
+                    are mainly used for other profiles, and hidden for own
+                    profile.
+                  </small>
+                </div>
+                <div class="sub-section insignificant">
+                  <small>
+                    Note: This feature uses currently-logged-in instance server
+                    API.
                   </small>
                 </div>
               </li>
@@ -655,7 +688,7 @@ function PushNotificationsSection({ onClose }) {
   const { instance } = api();
   const [uiState, setUIState] = useState('default');
   const pushFormRef = useRef();
-  const [allowNofitications, setAllowNotifications] = useState(false);
+  const [allowNotifications, setAllowNotifications] = useState(false);
   const [needRelogin, setNeedRelogin] = useState(false);
   const previousPolicyRef = useRef();
   useEffect(() => {
@@ -669,9 +702,10 @@ function PushNotificationsSection({ onClose }) {
         ) {
           setAllowNotifications(true);
           const { alerts, policy } = backendSubscription;
+          console.log('backendSubscription', backendSubscription);
           previousPolicyRef.current = policy;
           const { elements } = pushFormRef.current;
-          const policyEl = elements.namedItem(policy);
+          const policyEl = elements.namedItem('policy');
           if (policyEl) policyEl.value = policy;
           // alerts is {}, iterate it
           Object.keys(alerts).forEach((alert) => {
@@ -700,61 +734,68 @@ function PushNotificationsSection({ onClose }) {
     <form
       ref={pushFormRef}
       onChange={() => {
-        const values = Object.fromEntries(new FormData(pushFormRef.current));
-        const allowNofitications = !!values['policy-allow'];
-        const params = {
-          policy: values.policy,
-          data: {
-            alerts: {
-              mention: !!values.mention,
-              favourite: !!values.favourite,
-              reblog: !!values.reblog,
-              follow: !!values.follow,
-              follow_request: !!values.followRequest,
-              poll: !!values.poll,
-              update: !!values.update,
-              status: !!values.status,
+        setTimeout(() => {
+          const values = Object.fromEntries(new FormData(pushFormRef.current));
+          const allowNotifications = !!values['policy-allow'];
+          const params = {
+            data: {
+              policy: values.policy,
+              alerts: {
+                mention: !!values.mention,
+                favourite: !!values.favourite,
+                reblog: !!values.reblog,
+                follow: !!values.follow,
+                follow_request: !!values.followRequest,
+                poll: !!values.poll,
+                update: !!values.update,
+                status: !!values.status,
+              },
             },
-          },
-        };
+          };
 
-        let alertsCount = 0;
-        // Remove false values from data.alerts
-        // API defaults to false anyway
-        Object.keys(params.data.alerts).forEach((key) => {
-          if (!params.data.alerts[key]) {
-            delete params.data.alerts[key];
-          } else {
-            alertsCount++;
-          }
-        });
-        const policyChanged = previousPolicyRef.current !== params.policy;
+          let alertsCount = 0;
+          // Remove false values from data.alerts
+          // API defaults to false anyway
+          Object.keys(params.data.alerts).forEach((key) => {
+            if (!params.data.alerts[key]) {
+              delete params.data.alerts[key];
+            } else {
+              alertsCount++;
+            }
+          });
+          const policyChanged =
+            previousPolicyRef.current !== params.data.policy;
 
-        console.log('PN Form', { values, allowNofitications, params });
+          console.log('PN Form', {
+            values,
+            allowNotifications: allowNotifications,
+            params,
+          });
 
-        if (allowNofitications && alertsCount > 0) {
-          if (policyChanged) {
-            console.debug('Policy changed.');
-            removeSubscription()
-              .then(() => {
-                updateSubscription(params);
-              })
-              .catch((err) => {
+          if (allowNotifications && alertsCount > 0) {
+            if (policyChanged) {
+              console.debug('Policy changed.');
+              removeSubscription()
+                .then(() => {
+                  updateSubscription(params);
+                })
+                .catch((err) => {
+                  console.warn(err);
+                  alert('Failed to update subscription. Please try again.');
+                });
+            } else {
+              updateSubscription(params).catch((err) => {
                 console.warn(err);
                 alert('Failed to update subscription. Please try again.');
               });
+            }
           } else {
-            updateSubscription(params).catch((err) => {
+            removeSubscription().catch((err) => {
               console.warn(err);
-              alert('Failed to update subscription. Please try again.');
+              alert('Failed to remove subscription. Please try again.');
             });
           }
-        } else {
-          removeSubscription().catch((err) => {
-            console.warn(err);
-            alert('Failed to remove subscription. Please try again.');
-          });
-        }
+        }, 100);
       }}
     >
       <h3>Push Notifications (beta)</h3>
@@ -766,7 +807,7 @@ function PushNotificationsSection({ onClose }) {
                 type="checkbox"
                 disabled={isLoading || needRelogin}
                 name="policy-allow"
-                checked={allowNofitications}
+                checked={allowNotifications}
                 onChange={async (e) => {
                   const { checked } = e.target;
                   if (checked) {
@@ -790,7 +831,7 @@ function PushNotificationsSection({ onClose }) {
               Allow from{' '}
               <select
                 name="policy"
-                disabled={isLoading || needRelogin || !allowNofitications}
+                disabled={isLoading || needRelogin || !allowNotifications}
               >
                 {[
                   {
@@ -815,7 +856,7 @@ function PushNotificationsSection({ onClose }) {
               style={{
                 width: '100%',
               }}
-              hidden={!allowNofitications}
+              hidden={!allowNotifications}
             >
               <div class="shazam-container-inner">
                 <div class="sub-section">

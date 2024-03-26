@@ -103,8 +103,7 @@ Prerequisites: Node.js 18+
 - `npm run dev` - Start development server
 - `npm run build` - Build for production
 - `npm run preview` - Preview the production build
-- `npm run fetch-instances` - Fetch instances list from [instances.social](https://instances.social/), save it to `src/data/instances.json`
-  - requires `.env.dev` file with `INSTANCES_SOCIAL_SECRET_TOKEN` variable set
+- `npm run fetch-instances` - Fetch instances list from [joinmastodon.org/servers](https://joinmastodon.org/servers), save it to `src/data/instances.json`
 - `npm run sourcemap` - Run `source-map-explorer` on the production build
 
 ## Tech stack
@@ -193,13 +192,15 @@ See documentation for [lingva-translate](https://github.com/thedaviddelta/lingva
 
 These are self-hosted by other wonderful folks.
 
-- [ferengi.one](https://ferengi.one/) by [@david@collantes.social](https://collantes.social/@david)
+- [ferengi.one](https://m.ferengi.one/) by [@david@collantes.social](https://collantes.social/@david)
 - [phanpy.blaede.family](https://phanpy.blaede.family/) by [@cassidy@blaede.family](https://mastodon.blaede.family/@cassidy)
 - [phanpy.mstdn.mx](https://phanpy.mstdn.mx/) by [@maop@mstdn.mx](https://mstdn.mx/@maop)
 - [phanpy.vmst.io](https://phanpy.vmst.io/) by [@vmstan@vmst.io](https://vmst.io/@vmstan)
 - [phanpy.gotosocial.social](https://phanpy.gotosocial.social/) by [@admin@gotosocial.social](https://gotosocial.social/@admin)
 - [phanpy.bauxite.tech](https://phanpy.bauxite.tech) by [@b4ux1t3@hachyderm.io](https://hachyderm.io/@b4ux1t3)
 - [phanpy.hear-me.social](https://phanpy.hear-me.social) by [@admin@hear-me.social](https://hear-me.social/@admin)
+- [phanpy.fulda.social](https://phanpy.fulda.social) by [@Ganneff@fulda.social](https://fulda.social/@Ganneff)
+- [phanpy.crmbl.uk](https://phanpy.crmbl.uk) by [@snail@crmbl.uk](https://mstdn.crmbl.uk/@snail)
 
 > Note: Add yours by creating a pull request.
 
@@ -250,6 +251,7 @@ And here I am. Building a Mastodon web client.
 - [Statuzer](https://statuzer.com/)
 - [Tusked](https://tusked.app/)
 - [Mastodon Glitch Edition (standalone frontend)](https://iceshrimp.dev/iceshrimp/masto-fe-standalone)
+- [Mangane](https://github.com/BDX-town/Mangane)
 - [More...](https://github.com/hueyy/awesome-mastodon/#clients)
 
 ## 💁‍♂️ Notice to all other social media client developers

@@ -14,9 +14,11 @@ import tabMenuBarUrl from '../assets/tab-menu-bar.svg';
 
 import { api } from '../utils/api';
 import { fetchFollowedTags } from '../utils/followed-tags';
+import { getLists, getListTitle } from '../utils/lists';
 import pmem from '../utils/pmem';
 import showToast from '../utils/show-toast';
 import states from '../utils/states';
+import store from '../utils/store';
 
 import AsyncText from './AsyncText';
 import Icon from './icon';
@@ -42,7 +44,7 @@ const TYPES = [
 const TYPE_TEXT = {
   following: 'Home / Following',
   notifications: 'Notifications',
-  list: 'List',
+  list: 'Lists',
   public: 'Public (Local / Federated)',
   search: 'Search',
   'account-statuses': 'Account',
@@ -57,6 +59,7 @@ const TYPE_PARAMS = {
     {
       text: 'List ID',
       name: 'id',
+      notRequired: true,
     },
   ],
   public: [
@@ -121,10 +124,6 @@ const TYPE_PARAMS = {
     },
   ],
 };
-const fetchListTitle = pmem(async ({ id }) => {
-  const list = await api().masto.v1.lists.$select(id).fetch();
-  return list.title;
-});
 const fetchAccountTitle = pmem(async ({ id }) => {
   const account = await api().masto.v1.accounts.$select(id).fetch();
   return account.username || account.acct || account.displayName;
@@ -149,10 +148,11 @@ export const SHORTCUTS_META = {
     icon: 'notification',
   },
   list: {
-    id: 'list',
-    title: fetchListTitle,
-    path: ({ id }) => `/l/${id}`,
+    id: ({ id }) => (id ? 'list' : 'lists'),
+    title: ({ id }) => (id ? getListTitle(id) : 'Lists'),
+    path: ({ id }) => (id ? `/l/${id}` : '/l'),
     icon: 'list',
+    excludeViewMode: ({ id }) => (!id ? ['multi-column'] : []),
   },
   public: {
     id: 'public',
@@ -170,7 +170,7 @@ export const SHORTCUTS_META = {
   },
   search: {
     id: 'search',
-    title: ({ query }) => (query ? `"${query}"` : 'Search'),
+    title: ({ query }) => (query ? `“${query}”` : 'Search'),
     path: ({ query }) =>
       query
         ? `/search?q=${encodeURIComponent(query)}&type=statuses`
@@ -391,7 +391,11 @@ function ShortcutsSettings({ onClose }) {
           </>
         ) : (
           <div class="ui-state insignificant">
-            <p>No shortcuts yet. Tap on the Add shortcut button.</p>
+            <p>
+              {snapStates.settings.shortcutsViewMode === 'multi-column'
+                ? 'No columns yet. Tap on the Add column button.'
+                : 'No shortcuts yet. Tap on the Add shortcut button.'}
+            </p>
             <p>
               Not sure what to add?
               <br />
@@ -418,7 +422,9 @@ function ShortcutsSettings({ onClose }) {
         )}
         <p class="insignificant">
           {shortcuts.length >= SHORTCUTS_LIMIT &&
-            `Max ${SHORTCUTS_LIMIT} shortcuts`}
+            (snapStates.settings.shortcutsViewMode === 'multi-column'
+              ? `Max ${SHORTCUTS_LIMIT} columns`
+              : `Max ${SHORTCUTS_LIMIT} shortcuts`)}
         </p>
         <p
           style={{
@@ -450,7 +456,6 @@ function ShortcutsSettings({ onClose }) {
       </main>
       {showForm && (
         <Modal
-          class="light"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowForm(false);
@@ -474,7 +479,6 @@ function ShortcutsSettings({ onClose }) {
       )}
       {showImportExport && (
         <Modal
-          class="light"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowImportExport(false);
@@ -491,18 +495,8 @@ function ShortcutsSettings({ onClose }) {
   );
 }
 
-const FETCH_MAX_AGE = 1000 * 60; // 1 minute
-const fetchLists = pmem(
-  () => {
-    const { masto } = api();
-    return masto.v1.lists.list();
-  },
-  {
-    maxAge: FETCH_MAX_AGE,
-  },
-);
-
 const FORM_NOTES = {
+  list: `Specific list is optional. For multi-column mode, list is required, else the column will not be shown.`,
   search: `For multi-column mode, search term is required, else the column will not be shown.`,
   hashtag: 'Multiple hashtags are supported. Space-separated.',
 };
@@ -527,8 +521,7 @@ function ShortcutForm({
       if (currentType !== 'list') return;
       try {
         setUIState('loading');
-        const lists = await fetchLists();
-        lists.sort((a, b) => a.title.localeCompare(b.title));
+        const lists = await getLists();
         setLists(lists);
         setUIState('default');
       } catch (e) {
@@ -639,6 +632,7 @@ function ShortcutForm({
                         disabled={disabled || uiState === 'loading'}
                         defaultValue={editMode ? shortcut.id : undefined}
                       >
+                        <option value=""></option>
                         {lists.map((list) => (
                           <option value={list.id}>{list.title}</option>
                         ))}
@@ -666,7 +660,7 @@ function ShortcutForm({
                       }
                       autocorrect="off"
                       autocapitalize="off"
-                      spellcheck={false}
+                      spellCheck={false}
                       pattern={pattern}
                     />
                     {currentType === 'hashtag' &&
@@ -716,6 +710,7 @@ function ShortcutForm({
 }
 
 function ImportExport({ shortcuts, onClose }) {
+  const { masto } = api();
   const shortcutsStr = useMemo(() => {
     if (!shortcuts) return '';
     if (!shortcuts.filter(Boolean).length) return '';
@@ -754,6 +749,8 @@ function ImportExport({ shortcuts, onClose }) {
   }, [importShortcutStr]);
   const hasCurrentSettings = states.shortcuts.length > 0;
 
+  const shortcutsImportFieldRef = useRef();
+
   return (
     <div id="import-export-container" class="sheet">
       {!!onClose && (
@@ -772,8 +769,9 @@ function ImportExport({ shortcuts, onClose }) {
             <Icon icon="arrow-down-circle" size="l" class="insignificant" />{' '}
             <span>Import</span>
           </h3>
-          <p>
+          <p class="field-button">
             <input
+              ref={shortcutsImportFieldRef}
               type="text"
               name="import"
               placeholder="Paste shortcuts here"
@@ -782,6 +780,53 @@ function ImportExport({ shortcuts, onClose }) {
                 setImportShortcutStr(e.target.value);
               }}
             />
+            {states.settings.shortcutSettingsCloudImportExport && (
+              <button
+                type="button"
+                class="plain2 small"
+                disabled={importUIState === 'cloud-downloading'}
+                onClick={async () => {
+                  setImportUIState('cloud-downloading');
+                  const currentAccount = store.session.get('currentAccount');
+                  showToast(
+                    'Downloading saved shortcuts from instance server…',
+                  );
+                  try {
+                    const relationships =
+                      await masto.v1.accounts.relationships.fetch({
+                        id: [currentAccount],
+                      });
+                    const relationship = relationships[0];
+                    if (relationship) {
+                      const { note = '' } = relationship;
+                      if (
+                        /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/.test(
+                          note,
+                        )
+                      ) {
+                        const settings = note.match(
+                          /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/,
+                        )[1];
+                        const { v, dt, data } = JSON.parse(settings);
+                        shortcutsImportFieldRef.current.value = data;
+                        shortcutsImportFieldRef.current.dispatchEvent(
+                          new Event('input'),
+                        );
+                      }
+                    }
+                    setImportUIState('default');
+                  } catch (e) {
+                    console.error(e);
+                    setImportUIState('error');
+                    showToast('Unable to download shortcuts');
+                  }
+                }}
+                title="Download shortcuts from instance server"
+              >
+                <Icon icon="cloud" />
+                <Icon icon="arrow-down" />
+              </button>
+            )}
           </p>
           {!!parsedImportShortcutStr &&
             Array.isArray(parsedImportShortcutStr) && (
@@ -991,8 +1036,64 @@ function ImportExport({ shortcuts, onClose }) {
                   <Icon icon="share" /> <span>Share</span>
                 </button>
               )}{' '}
+            {states.settings.shortcutSettingsCloudImportExport && (
+              <button
+                type="button"
+                class="plain2"
+                disabled={importUIState === 'cloud-uploading'}
+                onClick={async () => {
+                  setImportUIState('cloud-uploading');
+                  const currentAccount = store.session.get('currentAccount');
+                  try {
+                    const relationships =
+                      await masto.v1.accounts.relationships.fetch({
+                        id: [currentAccount],
+                      });
+                    const relationship = relationships[0];
+                    if (relationship) {
+                      const { note = '' } = relationship;
+                      // const newNote = `${note}\n\n\n$<phanpy-shortcuts-settings>{shortcutsStr}</phanpy-shortcuts-settings>`;
+                      let newNote = '';
+                      if (
+                        /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/.test(
+                          note,
+                        )
+                      ) {
+                        const settingsJSON = JSON.stringify({
+                          v: '1', // version
+                          dt: Date.now(), // datetime stamp
+                          data: shortcutsStr, // shortcuts settings string
+                        });
+                        newNote = note.replace(
+                          /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/,
+                          `<phanpy-shortcuts-settings>${settingsJSON}</phanpy-shortcuts-settings>`,
+                        );
+                      } else {
+                        newNote = `${note}\n\n\n<phanpy-shortcuts-settings>${settingsJSON}</phanpy-shortcuts-settings>`;
+                      }
+                      showToast('Saving shortcuts to instance server…');
+                      await masto.v1.accounts
+                        .$select(currentAccount)
+                        .note.create({
+                          comment: newNote,
+                        });
+                      setImportUIState('default');
+                      showToast('Shortcuts saved');
+                    }
+                  } catch (e) {
+                    console.error(e);
+                    setImportUIState('error');
+                    showToast('Unable to save shortcuts');
+                  }
+                }}
+                title="Sync to instance server"
+              >
+                <Icon icon="cloud" />
+                <Icon icon="arrow-up" />
+              </button>
+            )}{' '}
             {shortcutsStr.length > 0 && (
-              <small class="insignificant">
+              <small class="insignificant ib">
                 {shortcutsStr.length} characters
               </small>
             )}
@@ -1008,6 +1109,14 @@ function ImportExport({ shortcuts, onClose }) {
             </details>
           )}
         </section>
+        {states.settings.shortcutSettingsCloudImportExport && (
+          <footer>
+            <p>
+              <Icon icon="cloud" /> Import/export settings from/to instance
+              server (Very experimental)
+            </p>
+          </footer>
+        )}
       </main>
     </div>
   );

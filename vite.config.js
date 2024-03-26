@@ -37,6 +37,7 @@ const rollbarCode = fs.readFileSync(
 export default defineConfig({
   base: './',
   envPrefix: allowedEnvPrefixes,
+  appType: 'mpa',
   mode: NODE_ENV,
   define: {
     __BUILD_TIME__: JSON.stringify(now),
@@ -45,6 +46,9 @@ export default defineConfig({
   },
   server: {
     host: true,
+  },
+  css: {
+    preprocessorMaxWorkers: 1,
   },
   plugins: [
     preact(),
@@ -90,6 +94,7 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
+        categories: ['social', 'news'],
       },
       strategies: 'injectManifest',
       injectRegister: 'inline',
@@ -105,6 +110,7 @@ export default defineConfig({
   ],
   build: {
     sourcemap: true,
+    cssCodeSplit: false,
     rollupOptions: {
       treeshake: false,
       input: {
@@ -112,6 +118,9 @@ export default defineConfig({
         compose: resolve(__dirname, 'compose/index.html'),
       },
       output: {
+        // manualChunks: {
+        //   'intl-segmenter-polyfill': ['@formatjs/intl-segmenter/polyfill'],
+        // },
         chunkFileNames: (chunkInfo) => {
           const { facadeModuleId } = chunkInfo;
           if (facadeModuleId && facadeModuleId.includes('icon')) {

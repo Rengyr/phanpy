@@ -10,6 +10,7 @@ import {
 } from '@szhsin/react-menu';
 import { decodeBlurHash, getBlurHashAverageColor } from 'fast-blurhash';
 import { shallowEqual } from 'fast-equals';
+import prettify from 'html-prettify';
 import { memo } from 'preact/compat';
 import {
   useCallback,
@@ -23,8 +24,9 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { useLongPress } from 'use-long-press';
 import { useSnapshot } from 'valtio';
 
-import AccountBlock from '../components/account-block';
+import CustomEmoji from '../components/custom-emoji';
 import EmojiText from '../components/emoji-text';
+import LazyShazam from '../components/lazy-shazam';
 import Loader from '../components/loader';
 import Menu2 from '../components/menu2';
 import MenuConfirm from '../components/menu-confirm';
@@ -84,6 +86,8 @@ const isIOS =
   window.ontouchstart !== undefined &&
   /iPad|iPhone|iPod/.test(navigator.userAgent);
 
+const rtf = new Intl.RelativeTimeFormat();
+
 const REACTIONS_LIMIT = 80;
 
 function getPollText(poll) {
@@ -106,6 +110,43 @@ function getPostText(status) {
   );
 }
 
+const PostContent = memo(
+  ({ post, instance, previewMode }) => {
+    const { content, emojis, language, mentions, url } = post;
+    return (
+      <div
+        lang={language}
+        dir="auto"
+        class="inner-content"
+        onClick={handleContentLinks({
+          mentions,
+          instance,
+          previewMode,
+          statusURL: url,
+        })}
+        dangerouslySetInnerHTML={{
+          __html: enhanceContent(content, {
+            emojis,
+            postEnhanceDOM: (dom) => {
+              // Remove target="_blank" from links
+              dom.querySelectorAll('a.u-url[target="_blank"]').forEach((a) => {
+                if (!/http/i.test(a.innerText.trim())) {
+                  a.removeAttribute('target');
+                }
+              });
+            },
+          }),
+        }}
+      />
+    );
+  },
+  (oldProps, newProps) => {
+    const { post: oldPost } = oldProps;
+    const { post: newPost } = newProps;
+    return oldPost.content === newPost.content;
+  },
+);
+
 function Status({
   statusID,
   status,
@@ -125,6 +166,8 @@ function Status({
   onStatusLinkClick = () => {},
   showFollowedTags,
   allowContextMenu,
+  showActionsBar,
+  showReplyParent,
 }) {
   if (skeleton) {
     return (
@@ -199,6 +242,8 @@ function Status({
     _deleted,
     _pinned,
     // _filtered,
+    // Non-Mastodon
+    emojiReactions,
   } = status;
 
   const currentAccount = useMemo(() => {
@@ -412,6 +457,7 @@ function Status({
   ]);
 
   const [showEdited, setShowEdited] = useState(false);
+  const [showEmbed, setShowEmbed] = useState(false);
 
   const spoilerContentRef = useTruncated();
   const contentRef = useTruncated();
@@ -467,6 +513,13 @@ function Status({
       (attachment) => !attachment.description?.trim?.(),
     );
   }, [mediaAttachments]);
+
+  const statusMonthsAgo = useMemo(() => {
+    return Math.floor(
+      (new Date() - createdAtDate) / (1000 * 60 * 60 * 24 * 30),
+    );
+  }, [createdAtDate]);
+
   const boostStatus = async () => {
     if (!sameInstance || !authenticated) {
       alert(unauthInteractionErrorMessage);
@@ -520,12 +573,11 @@ function Status({
       if (reblogged) {
         const newStatus = await masto.v1.statuses.$select(id).unreblog();
         saveStatus(newStatus, instance);
-        return true;
       } else {
         const newStatus = await masto.v1.statuses.$select(id).reblog();
         saveStatus(newStatus, instance);
-        return true;
       }
+      return true;
     } catch (e) {
       console.error(e);
       // Revert optimistism
@@ -536,7 +588,8 @@ function Status({
 
   const favouriteStatus = async () => {
     if (!sameInstance || !authenticated) {
-      return alert(unauthInteractionErrorMessage);
+      alert(unauthInteractionErrorMessage);
+      return false;
     }
     try {
       // Optimistic
@@ -552,16 +605,31 @@ function Status({
         const newStatus = await masto.v1.statuses.$select(id).favourite();
         saveStatus(newStatus, instance);
       }
+      return true;
     } catch (e) {
       console.error(e);
       // Revert optimistism
       states.statuses[sKey] = status;
+      return false;
     }
+  };
+  const favouriteStatusNotify = async () => {
+    try {
+      const done = await favouriteStatus();
+      if (!isSizeLarge && done) {
+        showToast(
+          favourited
+            ? `Unliked @${username || acct}'s post`
+            : `Liked @${username || acct}'s post`,
+        );
+      }
+    } catch (e) {}
   };
 
   const bookmarkStatus = async () => {
     if (!sameInstance || !authenticated) {
-      return alert(unauthInteractionErrorMessage);
+      alert(unauthInteractionErrorMessage);
+      return false;
     }
     try {
       // Optimistic
@@ -576,11 +644,25 @@ function Status({
         const newStatus = await masto.v1.statuses.$select(id).bookmark();
         saveStatus(newStatus, instance);
       }
+      return true;
     } catch (e) {
       console.error(e);
       // Revert optimistism
       states.statuses[sKey] = status;
+      return false;
     }
+  };
+  const bookmarkStatusNotify = async () => {
+    try {
+      const done = await bookmarkStatus();
+      if (!isSizeLarge && done) {
+        showToast(
+          bookmarked
+            ? `Unbookmarked @${username || acct}'s post`
+            : `Bookmarked @${username || acct}'s post`,
+        );
+      }
+    } catch (e) {}
   };
 
   const differentLanguage =
@@ -640,100 +722,60 @@ function Status({
     };
   }
 
-  const menuInstanceRef = useRef();
+  const actionsRef = useRef();
+  const isPublic = ['public', 'unlisted'].includes(visibility);
+  const isPinnable = ['public', 'unlisted', 'private'].includes(visibility);
   const StatusMenuItems = (
     <>
-      {!isSizeLarge && (
-        <>
-          <MenuHeader>
-            <span class="ib">
-              <Icon icon={visibilityIconsMap[visibility]} size="s" />{' '}
-              <span>{visibilityText[visibility]}</span>
-            </span>{' '}
-            <span class="ib">
-              {repliesCount > 0 && (
-                <span>
-                  <Icon icon="comment2" alt="Replies" size="s" />{' '}
-                  <span>{shortenNumber(repliesCount)}</span>
-                </span>
-              )}{' '}
-              {reblogsCount > 0 && (
-                <span>
-                  <Icon icon="rocket" alt="Boosts" size="s" />{' '}
-                  <span>{shortenNumber(reblogsCount)}</span>
-                </span>
-              )}{' '}
-              {favouritesCount > 0 && (
-                <span>
-                  <Icon icon="heart" alt="Likes" size="s" />{' '}
-                  <span>{shortenNumber(favouritesCount)}</span>
-                </span>
-              )}
-            </span>
-            <br />
-            {createdDateText}
-          </MenuHeader>
-          <MenuLink
-            to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
-            onClick={(e) => {
-              onStatusLinkClick(e, status);
-            }}
-          >
-            <Icon icon="arrow-right" />
-            <span>View post by @{username || acct}</span>
-          </MenuLink>
-        </>
-      )}
-      {!!editedAt && (
-        <MenuItem
-          onClick={() => {
-            setShowEdited(id);
-          }}
-        >
-          <Icon icon="history" />
-          <span>
-            Show Edit History
-            <br />
-            <small class="more-insignificant">Edited: {editedDateText}</small>
-          </span>
-        </MenuItem>
-      )}
-      {(!isSizeLarge || !!editedAt) && <MenuDivider />}
-      {isSizeLarge && (
-        <MenuItem
-          onClick={() => {
-            states.showGenericAccounts = {
-              heading: 'Boosted/Liked by…',
-              fetchAccounts: fetchBoostedLikedByAccounts,
-              instance,
-              showReactions: true,
-            };
-          }}
-        >
-          <Icon icon="react" />
-          <span>
-            Boosted/Liked by<span class="more-insignificant">…</span>
-          </span>
-        </MenuItem>
-      )}
       {!isSizeLarge && sameInstance && (
         <>
-          <div class="menu-horizontal">
+          <div class="menu-control-group-horizontal status-menu">
+            <MenuItem onClick={replyStatus}>
+              <Icon icon="comment" />
+              <span>
+                {repliesCount > 0 ? shortenNumber(repliesCount) : 'Reply'}
+              </span>
+            </MenuItem>
             <MenuConfirm
               subMenu
               confirmLabel={
                 <>
                   <Icon icon="rocket" />
-                  <span>{reblogged ? 'Unboost?' : 'Boost to everyone?'}</span>
+                  <span>{reblogged ? 'Unboost' : 'Boost'}</span>
                 </>
               }
+              className={`menu-reblog ${reblogged ? 'checked' : ''}`}
+              menuExtras={
+                <MenuItem
+                  onClick={() => {
+                    states.showCompose = {
+                      draftStatus: {
+                        status: `\n${url}`,
+                      },
+                    };
+                  }}
+                >
+                  <Icon icon="quote" />
+                  <span>Quote</span>
+                </MenuItem>
+              }
               menuFooter={
-                mediaNoDesc &&
-                !reblogged && (
+                mediaNoDesc && !reblogged ? (
                   <div class="footer">
                     <Icon icon="alert" />
                     Some media have no descriptions.
                   </div>
+                ) : (
+                  statusMonthsAgo >= 3 && (
+                    <div class="footer">
+                      <Icon icon="info" />
+                      <span>
+                        Old post (
+                        <strong>{rtf.format(-statusMonthsAgo, 'month')}</strong>
+                        )
+                      </span>
+                    </div>
+                  )
                 )
               }
               disabled={!canBoost}
@@ -750,67 +792,62 @@ function Status({
                 } catch (e) {}
               }}
             >
-              <Icon
-                icon="rocket"
-                style={{
-                  color: reblogged && 'var(--reblog-color)',
-                }}
-              />
-              <span>{reblogged ? 'Unboost' : 'Boost…'}</span>
+              <Icon icon="rocket" />
+              <span>
+                {reblogsCount > 0
+                  ? shortenNumber(reblogsCount)
+                  : reblogged
+                  ? 'Unboost'
+                  : 'Boost…'}
+              </span>
             </MenuConfirm>
             <MenuItem
-              onClick={() => {
-                try {
-                  favouriteStatus();
-                  if (!isSizeLarge) {
-                    showToast(
-                      favourited
-                        ? `Unliked @${username || acct}'s post`
-                        : `Liked @${username || acct}'s post`,
-                    );
-                  }
-                } catch (e) {}
-              }}
+              onClick={favouriteStatusNotify}
+              className={`menu-favourite ${favourited ? 'checked' : ''}`}
             >
-              <Icon
-                icon="heart"
-                style={{
-                  color: favourited && 'var(--favourite-color)',
-                }}
-              />
-              <span>{favourited ? 'Unlike' : 'Like'}</span>
-            </MenuItem>
-          </div>
-          <div class="menu-horizontal">
-            <MenuItem onClick={replyStatus}>
-              <Icon icon="reply" />
-              <span>Reply</span>
+              <Icon icon="heart" />
+              <span>
+                {favouritesCount > 0
+                  ? shortenNumber(favouritesCount)
+                  : favourited
+                  ? 'Unlike'
+                  : 'Like'}
+              </span>
             </MenuItem>
             <MenuItem
-              onClick={() => {
-                try {
-                  bookmarkStatus();
-                  if (!isSizeLarge) {
-                    showToast(
-                      bookmarked
-                        ? `Unbookmarked @${username || acct}'s post`
-                        : `Bookmarked @${username || acct}'s post`,
-                    );
-                  }
-                } catch (e) {}
-              }}
+              onClick={bookmarkStatusNotify}
+              className={`menu-bookmark ${bookmarked ? 'checked' : ''}`}
             >
-              <Icon
-                icon="bookmark"
-                style={{
-                  color: bookmarked && 'var(--link-color)',
-                }}
-              />
+              <Icon icon="bookmark" />
               <span>{bookmarked ? 'Unbookmark' : 'Bookmark'}</span>
             </MenuItem>
           </div>
         </>
       )}
+      {!isSizeLarge && sameInstance && (isSizeLarge || showActionsBar) && (
+        <MenuDivider />
+      )}
+      {(isSizeLarge || showActionsBar) && (
+        <>
+          <MenuItem
+            onClick={() => {
+              states.showGenericAccounts = {
+                heading: 'Boosted/Liked by…',
+                fetchAccounts: fetchBoostedLikedByAccounts,
+                instance,
+                showReactions: true,
+                postID: sKey,
+              };
+            }}
+          >
+            <Icon icon="react" />
+            <span>
+              Boosted/Liked by<span class="more-insignificant">…</span>
+            </span>
+          </MenuItem>
+        </>
+      )}
+      {(enableTranslate || !language || differentLanguage) && <MenuDivider />}
       {enableTranslate ? (
         <div class={supportsTTS ? 'menu-horizontal' : ''}>
           <MenuItem
@@ -861,7 +898,45 @@ function Status({
           </div>
         )
       )}
-      {((!isSizeLarge && sameInstance) || enableTranslate) && <MenuDivider />}
+      {((!isSizeLarge && sameInstance) ||
+        enableTranslate ||
+        !language ||
+        differentLanguage) && <MenuDivider />}
+      {!isSizeLarge && (
+        <>
+          <MenuLink
+            to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
+            onClick={(e) => {
+              onStatusLinkClick(e, status);
+            }}
+          >
+            <Icon icon="arrows-right" />
+            <small>
+              View post by @{username || acct}
+              <br />
+              <span class="more-insignificant">
+                {visibilityText[visibility]} • {createdDateText}
+              </span>
+            </small>
+          </MenuLink>
+        </>
+      )}
+      {!!editedAt && (
+        <>
+          <MenuItem
+            onClick={() => {
+              setShowEdited(id);
+            }}
+          >
+            <Icon icon="history" />
+            <small>
+              Show Edit History
+              <br />
+              <span class="more-insignificant">Edited: {editedDateText}</span>
+            </small>
+          </MenuItem>
+        </>
+      )}
       <MenuItem href={url} target="_blank">
         <Icon icon="external" />
         <small class="menu-double-lines">{nicePostURL(url)}</small>
@@ -882,7 +957,8 @@ function Status({
           <Icon icon="link" />
           <span>Copy</span>
         </MenuItem>
-        {navigator?.share &&
+        {isPublic &&
+          navigator?.share &&
           navigator?.canShare?.({
             url,
           }) && (
@@ -903,6 +979,16 @@ function Status({
             </MenuItem>
           )}
       </div>
+      {isPublic && isSizeLarge && (
+        <MenuItem
+          onClick={() => {
+            setShowEmbed(true);
+          }}
+        >
+          <Icon icon="code" />
+          <span>Embed post</span>
+        </MenuItem>
+      )}
       {(isSelf || mentionSelf) && <MenuDivider />}
       {(isSelf || mentionSelf) && (
         <MenuItem
@@ -932,6 +1018,40 @@ function Status({
             <>
               <Icon icon="mute" />
               <span>Mute conversation</span>
+            </>
+          )}
+        </MenuItem>
+      )}
+      {isSelf && isPinnable && (
+        <MenuItem
+          onClick={async () => {
+            try {
+              const newStatus = await masto.v1.statuses
+                .$select(id)
+                [_pinned ? 'unpin' : 'pin']();
+              // saveStatus(newStatus, instance);
+              showToast(
+                _pinned
+                  ? 'Post unpinned from profile'
+                  : 'Post pinned to profile',
+              );
+            } catch (e) {
+              console.error(e);
+              showToast(
+                _pinned ? 'Unable to unpin post' : 'Unable to pin post',
+              );
+            }
+          }}
+        >
+          {_pinned ? (
+            <>
+              <Icon icon="unpin" />
+              <span>Unpin from profile</span>
+            </>
+          ) : (
+            <>
+              <Icon icon="pin" />
+              <span>Pin to profile</span>
             </>
           )}
         </MenuItem>
@@ -981,6 +1101,23 @@ function Status({
           )}
         </div>
       )}
+      {!isSelf && isSizeLarge && (
+        <>
+          <MenuDivider />
+          <MenuItem
+            className="danger"
+            onClick={() => {
+              states.showReportModal = {
+                account: status.account,
+                post: status,
+              };
+            }}
+          >
+            <Icon icon="flag" />
+            <span>Report post…</span>
+          </MenuItem>
+        </>
+      )}
     </>
   );
 
@@ -1002,7 +1139,12 @@ function Status({
           const { clientX, clientY } = e.touches?.[0] || e;
           // link detection copied from onContextMenu because here it works
           const link = e.target.closest('a');
-          if (link && /^https?:\/\//.test(link.getAttribute('href'))) return;
+          if (
+            link &&
+            statusRef.current.contains(link) &&
+            !link.getAttribute('href').startsWith('#')
+          )
+            return;
           e.preventDefault();
           setContextMenuProps({
             anchorPoint: {
@@ -1026,42 +1168,12 @@ function Status({
   const rRef = useHotkeys('r, shift+r', replyStatus, {
     enabled: hotkeysEnabled,
   });
-  const fRef = useHotkeys(
-    'f, l',
-    () => {
-      try {
-        favouriteStatus();
-        if (!isSizeLarge) {
-          showToast(
-            favourited
-              ? `Unliked @${username || acct}'s post`
-              : `Liked @${username || acct}'s post`,
-          );
-        }
-      } catch (e) {}
-    },
-    {
-      enabled: hotkeysEnabled,
-    },
-  );
-  const dRef = useHotkeys(
-    'd',
-    () => {
-      try {
-        bookmarkStatus();
-        if (!isSizeLarge) {
-          showToast(
-            bookmarked
-              ? `Unbookmarked @${username || acct}'s post`
-              : `Bookmarked @${username || acct}'s post`,
-          );
-        }
-      } catch (e) {}
-    },
-    {
-      enabled: hotkeysEnabled,
-    },
-  );
+  const fRef = useHotkeys('f, l', favouriteStatusNotify, {
+    enabled: hotkeysEnabled,
+  });
+  const dRef = useHotkeys('d', bookmarkStatusNotify, {
+    enabled: hotkeysEnabled,
+  });
   const bRef = useHotkeys(
     'shift+b',
     () => {
@@ -1236,124 +1348,198 @@ function Status({
   ]);
 
   return (
-    <article
-      data-state-post-id={sKey}
-      ref={(node) => {
-        statusRef.current = node;
-        // Use parent node if it's in focus
-        // Use case: <a><status /></a>
-        // When navigating (j/k), the <a> is focused instead of <status />
-        // Hotkey binding doesn't bubble up thus this hack
-        const nodeRef =
-          node?.closest?.(
-            '.timeline-item, .timeline-item-alt, .status-link, .status-focus',
-          ) || node;
-        rRef.current = nodeRef;
-        fRef.current = nodeRef;
-        dRef.current = nodeRef;
-        bRef.current = nodeRef;
-        xRef.current = nodeRef;
-      }}
-      tabindex="-1"
-      class={`status ${
-        !withinContext && inReplyToId && inReplyToAccount
-          ? 'status-reply-to'
-          : ''
-      } visibility-${visibility} ${_pinned ? 'status-pinned' : ''} ${
-        {
-          s: 'small',
-          m: 'medium',
-          l: 'large',
-        }[size]
-      } ${_deleted ? 'status-deleted' : ''} ${quoted ? 'status-card' : ''}`}
-      onMouseEnter={debugHover}
-      onContextMenu={(e) => {
-        // FIXME: this code isn't getting called on Chrome at all?
-        if (!showContextMenu) return;
-        if (e.metaKey) return;
-        // console.log('context menu', e);
-        const link = e.target.closest('a');
-        if (link && /^https?:\/\//.test(link.getAttribute('href'))) return;
-        e.preventDefault();
-        setContextMenuProps({
-          anchorPoint: {
-            x: e.clientX,
-            y: e.clientY,
-          },
-          direction: 'right',
-        });
-        setIsContextMenuOpen(true);
-      }}
-      {...(showContextMenu ? bindLongPressContext() : {})}
-    >
-      {showContextMenu && (
-        <ControlledMenu
-          ref={contextMenuRef}
-          state={isContextMenuOpen ? 'open' : undefined}
-          {...contextMenuProps}
-          onClose={(e) => {
-            setIsContextMenuOpen(false);
-            // statusRef.current?.focus?.();
-            if (e?.reason === 'click') {
-              statusRef.current?.closest('[tabindex]')?.focus?.();
+    <>
+      {showReplyParent && !!(inReplyToId && inReplyToAccountId) && (
+        <StatusCompact sKey={sKey} />
+      )}
+      <article
+        data-state-post-id={sKey}
+        ref={(node) => {
+          statusRef.current = node;
+          // Use parent node if it's in focus
+          // Use case: <a><status /></a>
+          // When navigating (j/k), the <a> is focused instead of <status />
+          // Hotkey binding doesn't bubble up thus this hack
+          const nodeRef =
+            node?.closest?.(
+              '.timeline-item, .timeline-item-alt, .status-link, .status-focus',
+            ) || node;
+          rRef.current = nodeRef;
+          fRef.current = nodeRef;
+          dRef.current = nodeRef;
+          bRef.current = nodeRef;
+          xRef.current = nodeRef;
+        }}
+        tabindex="-1"
+        class={`status ${
+          !withinContext && inReplyToId && inReplyToAccount
+            ? 'status-reply-to'
+            : ''
+        } visibility-${visibility} ${_pinned ? 'status-pinned' : ''} ${
+          {
+            s: 'small',
+            m: 'medium',
+            l: 'large',
+          }[size]
+        } ${_deleted ? 'status-deleted' : ''} ${quoted ? 'status-card' : ''} ${
+          isContextMenuOpen ? 'status-menu-open' : ''
+        }`}
+        onMouseEnter={debugHover}
+        onContextMenu={(e) => {
+          if (!showContextMenu) return;
+          if (e.metaKey) return;
+          // console.log('context menu', e);
+          const link = e.target.closest('a');
+          if (
+            link &&
+            statusRef.current.contains(link) &&
+            !link.getAttribute('href').startsWith('#')
+          )
+            return;
+
+          // If there's selected text, don't show custom context menu
+          const selection = window.getSelection?.();
+          if (selection.toString().length > 0) {
+            const { anchorNode } = selection;
+            if (statusRef.current?.contains(anchorNode)) {
+              return;
             }
-          }}
-          portal={{
-            target: document.body,
-          }}
-          containerProps={{
-            style: {
-              // Higher than the backdrop
-              zIndex: 1001,
+          }
+          e.preventDefault();
+          setContextMenuProps({
+            anchorPoint: {
+              x: e.clientX,
+              y: e.clientY,
             },
-            onClick: () => {
-              contextMenuRef.current?.closeMenu?.();
-            },
-          }}
-          overflow="auto"
-          boundingBoxPadding={safeBoundingBoxPadding()}
-          unmountOnClose
-        >
-          {StatusMenuItems}
-        </ControlledMenu>
-      )}
-      {size !== 'l' && (
-        <div class="status-badge">
-          {reblogged && <Icon class="reblog" icon="rocket" size="s" />}
-          {favourited && <Icon class="favourite" icon="heart" size="s" />}
-          {bookmarked && <Icon class="bookmark" icon="bookmark" size="s" />}
-          {_pinned && <Icon class="pin" icon="pin" size="s" />}
-        </div>
-      )}
-      {size !== 's' && (
-        <a
-          href={accountURL}
-          tabindex="-1"
-          // target="_blank"
-          title={`@${acct}`}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            states.showAccount = {
-              account: status.account,
-              instance,
-            };
-          }}
-        >
-          <Avatar url={avatarStatic || avatar} size="xxl" squircle={bot} />
-        </a>
-      )}
-      <div class="container">
-        <div class="meta">
-          <span class="meta-name">
-            <NameText
-              account={status.account}
-              instance={instance}
-              showAvatar={size === 's'}
-              showAcct={isSizeLarge}
-            />
-          </span>
-          {/* {inReplyToAccount && !withinContext && size !== 's' && (
+            direction: 'right',
+          });
+          setIsContextMenuOpen(true);
+        }}
+        {...(showContextMenu ? bindLongPressContext() : {})}
+      >
+        {showContextMenu && (
+          <ControlledMenu
+            ref={contextMenuRef}
+            state={isContextMenuOpen ? 'open' : undefined}
+            {...contextMenuProps}
+            onClose={(e) => {
+              setIsContextMenuOpen(false);
+              // statusRef.current?.focus?.();
+              if (e?.reason === 'click') {
+                statusRef.current?.closest('[tabindex]')?.focus?.();
+              }
+            }}
+            portal={{
+              target: document.body,
+            }}
+            containerProps={{
+              style: {
+                // Higher than the backdrop
+                zIndex: 1001,
+              },
+              onClick: () => {
+                contextMenuRef.current?.closeMenu?.();
+              },
+            }}
+            overflow="auto"
+            boundingBoxPadding={safeBoundingBoxPadding()}
+            unmountOnClose
+          >
+            {StatusMenuItems}
+          </ControlledMenu>
+        )}
+        {showActionsBar &&
+          size !== 'l' &&
+          !previewMode &&
+          !readOnly &&
+          !_deleted &&
+          !quoted && (
+            <div
+              class={`status-actions ${
+                isContextMenuOpen === 'actions-bar' ? 'open' : ''
+              }`}
+              ref={actionsRef}
+            >
+              <StatusButton
+                size="s"
+                title="Reply"
+                alt="Reply"
+                class="reply-button"
+                icon="comment"
+                iconSize="m"
+                onClick={replyStatus}
+              />
+              <StatusButton
+                size="s"
+                checked={favourited}
+                title={['Like', 'Unlike']}
+                alt={['Like', 'Liked']}
+                class="favourite-button"
+                icon="heart"
+                iconSize="m"
+                count={favouritesCount}
+                onClick={favouriteStatusNotify}
+              />
+              <button
+                type="button"
+                title="More"
+                class="plain more-button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenuProps({
+                    anchorRef: {
+                      current: e.currentTarget,
+                    },
+                    align: 'start',
+                    direction: 'left',
+                    gap: 0,
+                    shift: -8,
+                  });
+                  setIsContextMenuOpen('actions-bar');
+                }}
+              >
+                <Icon icon="more2" size="m" alt="More" />
+              </button>
+            </div>
+          )}
+        {size !== 'l' && (
+          <div class="status-badge">
+            {reblogged && <Icon class="reblog" icon="rocket" size="s" />}
+            {favourited && <Icon class="favourite" icon="heart" size="s" />}
+            {bookmarked && <Icon class="bookmark" icon="bookmark" size="s" />}
+            {_pinned && <Icon class="pin" icon="pin" size="s" />}
+          </div>
+        )}
+        {size !== 's' && (
+          <a
+            href={accountURL}
+            tabindex="-1"
+            // target="_blank"
+            title={`@${acct}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              states.showAccount = {
+                account: status.account,
+                instance,
+              };
+            }}
+          >
+            <Avatar url={avatarStatic || avatar} size="xxl" squircle={bot} />
+          </a>
+        )}
+        <div class="container">
+          <div class="meta">
+            <span class="meta-name">
+              <NameText
+                account={status.account}
+                instance={instance}
+                showAvatar={size === 's'}
+                showAcct={isSizeLarge}
+              />
+            </span>
+            {/* {inReplyToAccount && !withinContext && size !== 's' && (
               <>
                 {' '}
                 <span class="ib">
@@ -1362,419 +1548,442 @@ function Status({
                 </span>
               </>
             )} */}
-          {/* </span> */}{' '}
-          {size !== 'l' &&
-            (_deleted ? (
-              <span class="status-deleted-tag">Deleted</span>
-            ) : url && !previewMode && !quoted ? (
-              <Link
-                to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
-                onClick={(e) => {
-                  if (
-                    e.metaKey ||
-                    e.ctrlKey ||
-                    e.shiftKey ||
-                    e.altKey ||
-                    e.which === 2
-                  ) {
-                    return;
-                  }
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onStatusLinkClick?.(e, status);
-                  setContextMenuProps({
-                    anchorRef: {
-                      current: e.currentTarget,
-                    },
-                    align: 'end',
-                    direction: 'bottom',
-                    gap: 4,
-                  });
-                  setIsContextMenuOpen(true);
-                }}
-                class={`time ${
-                  isContextMenuOpen && contextMenuProps?.anchorRef
-                    ? 'is-open'
-                    : ''
-                }`}
-              >
-                <RelativeTime datetime={createdAtDate} format="micro" />
-                {!previewMode && <Icon icon="more2" class="more" />}
-              </Link>
-            ) : (
-              // <Menu
-              //   instanceRef={menuInstanceRef}
-              //   portal={{
-              //     target: document.body,
-              //   }}
-              //   containerProps={{
-              //     style: {
-              //       // Higher than the backdrop
-              //       zIndex: 1001,
-              //     },
-              //     onClick: (e) => {
-              //       if (e.target === e.currentTarget)
-              //         menuInstanceRef.current?.closeMenu?.();
-              //     },
-              //   }}
-              //   align="end"
-              //   gap={4}
-              //   overflow="auto"
-              //   viewScroll="close"
-              //   boundingBoxPadding="8 8 8 8"
-              //   unmountOnClose
-              //   menuButton={({ open }) => (
-              //     <Link
-              //       to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
-              //       onClick={(e) => {
-              //         e.preventDefault();
-              //         e.stopPropagation();
-              //         onStatusLinkClick?.(e, status);
-              //       }}
-              //       class={`time ${open ? 'is-open' : ''}`}
-              //     >
-              //       <Icon
-              //         icon={visibilityIconsMap[visibility]}
-              //         alt={visibilityText[visibility]}
-              //         size="s"
-              //       />{' '}
-              //       <RelativeTime datetime={createdAtDate} format="micro" />
-              //     </Link>
-              //   )}
-              // >
-              //   {StatusMenuItems}
-              // </Menu>
-              <span class="time">
-                <Icon
-                  icon={visibilityIconsMap[visibility]}
-                  alt={visibilityText[visibility]}
-                  size="s"
-                />{' '}
-                <RelativeTime datetime={createdAtDate} format="micro" />
-              </span>
-            ))}
-        </div>
-        {visibility === 'direct' && (
-          <>
-            <div class="status-direct-badge">Private mention</div>{' '}
-          </>
-        )}
-        {!withinContext && (
-          <>
-            {isThread ? (
-              <div class="status-thread-badge">
-                <Icon icon="thread" size="s" />
-                Thread
-                {snapStates.statusThreadNumber[sKey]
-                  ? ` ${snapStates.statusThreadNumber[sKey]}/X`
-                  : ''}
-              </div>
-            ) : (
-              !!inReplyToId &&
-              !!inReplyToAccount &&
-              (!!spoilerText ||
-                !mentions.find((mention) => {
-                  return mention.id === inReplyToAccountId;
-                })) && (
-                <div class="status-reply-badge">
-                  <Icon icon="reply" />{' '}
-                  <NameText
-                    account={inReplyToAccount}
-                    instance={instance}
-                    short
-                  />
-                </div>
-              )
-            )}
-          </>
-        )}
-        <div
-          class={`content-container ${
-            spoilerText || sensitive ? 'has-spoiler' : ''
-          } ${showSpoiler ? 'show-spoiler' : ''} ${
-            showSpoilerMedia ? 'show-media' : ''
-          }`}
-          data-content-text-weight={contentTextWeight ? textWeight() : null}
-          style={
-            (isSizeLarge || contentTextWeight) && {
-              '--content-text-weight': textWeight(),
-            }
-          }
-        >
-          {!!spoilerText && (
-            <>
-              <div
-                class="content spoiler-content"
-                lang={language}
-                dir="auto"
-                ref={spoilerContentRef}
-                data-read-more={readMoreText}
-              >
-                <p>
-                  <EmojiText text={spoilerText} emojis={emojis} />
-                </p>
-              </div>
-              {readingExpandSpoilers || previewMode ? (
-                <div class="spoiler-divider">
-                  <Icon icon="eye-open" /> Content warning
-                </div>
-              ) : (
-                <button
-                  class={`light spoiler-button ${
-                    showSpoiler ? 'spoiling' : ''
-                  }`}
-                  type="button"
+            {/* </span> */}{' '}
+            {size !== 'l' &&
+              (_deleted ? (
+                <span class="status-deleted-tag">Deleted</span>
+              ) : url && !previewMode && !readOnly && !quoted ? (
+                <Link
+                  to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
                   onClick={(e) => {
+                    if (
+                      e.metaKey ||
+                      e.ctrlKey ||
+                      e.shiftKey ||
+                      e.altKey ||
+                      e.which === 2
+                    ) {
+                      return;
+                    }
                     e.preventDefault();
                     e.stopPropagation();
-                    if (showSpoiler) {
-                      delete states.spoilers[id];
-                      if (!readingExpandSpoilers) {
-                        delete states.spoilersMedia[id];
-                      }
-                    } else {
-                      states.spoilers[id] = true;
-                      if (!readingExpandSpoilers) {
-                        states.spoilersMedia[id] = true;
-                      }
-                    }
+                    onStatusLinkClick?.(e, status);
+                    setContextMenuProps({
+                      anchorRef: {
+                        current: e.currentTarget,
+                      },
+                      align: 'end',
+                      direction: 'bottom',
+                      gap: 4,
+                    });
+                    setIsContextMenuOpen(true);
                   }}
+                  class={`time ${
+                    isContextMenuOpen && contextMenuProps?.anchorRef
+                      ? 'is-open'
+                      : ''
+                  }`}
                 >
-                  <Icon icon={showSpoiler ? 'eye-open' : 'eye-close'} />{' '}
-                  {showSpoiler ? 'Show less' : 'Show content'}
-                </button>
-              )}
-            </>
-          )}
-          {!!content && (
-            <div class="content" ref={contentRef} data-read-more={readMoreText}>
-              <div
-                lang={language}
-                dir="auto"
-                class="inner-content"
-                onClick={handleContentLinks({
-                  mentions,
-                  instance,
-                  previewMode,
-                  statusURL: url,
-                })}
-                dangerouslySetInnerHTML={{
-                  __html: enhanceContent(content, {
-                    emojis,
-                    postEnhanceDOM: (dom) => {
-                      // Remove target="_blank" from links
-                      dom
-                        .querySelectorAll('a.u-url[target="_blank"]')
-                        .forEach((a) => {
-                          if (!/http/i.test(a.innerText.trim())) {
-                            a.removeAttribute('target');
-                          }
-                        });
-                      // if (previewMode) return;
-                      // Unfurl Mastodon links
-                      // Array.from(
-                      //   dom.querySelectorAll(
-                      //     'a[href]:not(.u-url):not(.mention):not(.hashtag)',
-                      //   ),
-                      // )
-                      //   .filter((a) => {
-                      //     const url = a.href;
-                      //     const isPostItself =
-                      //       url === status.url || url === status.uri;
-                      //     return !isPostItself && isMastodonLinkMaybe(url);
-                      //   })
-                      //   .forEach((a, i) => {
-                      //     unfurlMastodonLink(currentInstance, a.href).then(
-                      //       (result) => {
-                      //         if (!result) return;
-                      //         a.removeAttribute('target');
-                      //         if (!sKey) return;
-                      //         if (!Array.isArray(states.statusQuotes[sKey])) {
-                      //           states.statusQuotes[sKey] = [];
-                      //         }
-                      //         if (!states.statusQuotes[sKey][i]) {
-                      //           states.statusQuotes[sKey].splice(i, 0, result);
-                      //         }
-                      //       },
-                      //     );
-                      //   });
-                    },
-                  }),
-                }}
-              />
-              <QuoteStatuses id={id} instance={instance} level={quoted} />
-            </div>
-          )}
-          {!!poll && (
-            <Poll
-              lang={language}
-              poll={poll}
-              readOnly={readOnly || !sameInstance || !authenticated}
-              onUpdate={(newPoll) => {
-                states.statuses[sKey].poll = newPoll;
-              }}
-              refresh={() => {
-                return masto.v1.polls
-                  .$select(poll.id)
-                  .fetch()
-                  .then((pollResponse) => {
-                    states.statuses[sKey].poll = pollResponse;
-                  })
-                  .catch((e) => {}); // Silently fail
-              }}
-              votePoll={(choices) => {
-                return masto.v1.polls
-                  .$select(poll.id)
-                  .votes.create({
-                    choices,
-                  })
-                  .then((pollResponse) => {
-                    states.statuses[sKey].poll = pollResponse;
-                  })
-                  .catch((e) => {}); // Silently fail
-              }}
-            />
-          )}
-          {(((enableTranslate || inlineTranslate) &&
-            !!content.trim() &&
-            !!getHTMLText(emojifyText(content, emojis)) &&
-            differentLanguage) ||
-            forceTranslate) && (
-            <TranslationBlock
-              forceTranslate={forceTranslate || inlineTranslate}
-              mini={!isSizeLarge && !withinContext}
-              sourceLanguage={language}
-              text={getPostText(status)}
-            />
-          )}
-          {!previewMode &&
-            sensitive &&
-            !!mediaAttachments.length &&
-            readingExpandMedia !== 'show_all' && (
-              <button
-                class={`plain spoiler-media-button ${
-                  showSpoilerMedia ? 'spoiling' : ''
-                }`}
-                type="button"
-                hidden={!readingExpandSpoilers && !!spoilerText}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (showSpoilerMedia) {
-                    delete states.spoilersMedia[id];
-                  } else {
-                    states.spoilersMedia[id] = true;
-                  }
-                }}
-              >
-                <Icon icon={showSpoilerMedia ? 'eye-open' : 'eye-close'} />{' '}
-                {showSpoilerMedia ? 'Show less' : 'Show media'}
-              </button>
-            )}
-          {!!mediaAttachments.length && (
-            <MultipleMediaFigure
-              lang={language}
-              enabled={showMultipleMediaCaptions}
-              captionChildren={captionChildren}
-            >
-              <div
-                ref={mediaContainerRef}
-                class={`media-container media-eq${mediaAttachments.length} ${
-                  mediaAttachments.length > 2 ? 'media-gt2' : ''
-                } ${mediaAttachments.length > 4 ? 'media-gt4' : ''}`}
-              >
-                {displayedMediaAttachments.map((media, i) => (
-                  <Media
-                    key={media.id}
-                    media={media}
-                    autoAnimate={isSizeLarge}
-                    showCaption={mediaAttachments.length === 1}
-                    lang={language}
-                    altIndex={
-                      showMultipleMediaCaptions && !!media.description && i + 1
-                    }
-                    to={`/${instance}/s/${id}?${
-                      withinContext ? 'media' : 'media-only'
-                    }=${i + 1}`}
-                    onClick={
-                      onMediaClick
-                        ? (e) => {
-                            onMediaClick(e, i, media, status);
-                          }
-                        : undefined
-                    }
-                  />
-                ))}
-              </div>
-            </MultipleMediaFigure>
-          )}
-          {!!card &&
-            /^https/i.test(card?.url) &&
-            !sensitive &&
-            !spoilerText &&
-            !poll &&
-            !mediaAttachments.length &&
-            !snapStates.statusQuotes[sKey] && (
-              <Card
-                card={card}
-                selfReferential={
-                  card?.url === status.url || card?.url === status.uri
-                }
-                instance={currentInstance}
-              />
-            )}
-        </div>
-        {(
-          <>
-            <div class="extra-meta">
-              {_deleted ? (
-                <span class="status-deleted-tag">Deleted</span>
-              ) : isSizeLarge && (
-                <>
+                  {showCommentHint && !showCommentCount ? (
+                    <Icon
+                      icon="comment2"
+                      size="s"
+                      alt={`${repliesCount} ${
+                        repliesCount === 1 ? 'reply' : 'replies'
+                      }`}
+                    />
+                  ) : (
+                    <Icon
+                      icon={visibilityIconsMap[visibility]}
+                      alt={visibilityText[visibility]}
+                      size="s"
+                    />
+                  )}{' '}
+                  <RelativeTime datetime={createdAtDate} format="micro" />
+                  {!previewMode && !readOnly && (
+                    <Icon icon="more2" class="more" />
+                  )}
+                </Link>
+              ) : (
+                // <Menu
+                //   instanceRef={menuInstanceRef}
+                //   portal={{
+                //     target: document.body,
+                //   }}
+                //   containerProps={{
+                //     style: {
+                //       // Higher than the backdrop
+                //       zIndex: 1001,
+                //     },
+                //     onClick: (e) => {
+                //       if (e.target === e.currentTarget)
+                //         menuInstanceRef.current?.closeMenu?.();
+                //     },
+                //   }}
+                //   align="end"
+                //   gap={4}
+                //   overflow="auto"
+                //   viewScroll="close"
+                //   boundingBoxPadding="8 8 8 8"
+                //   unmountOnClose
+                //   menuButton={({ open }) => (
+                //     <Link
+                //       to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
+                //       onClick={(e) => {
+                //         e.preventDefault();
+                //         e.stopPropagation();
+                //         onStatusLinkClick?.(e, status);
+                //       }}
+                //       class={`time ${open ? 'is-open' : ''}`}
+                //     >
+                //       <Icon
+                //         icon={visibilityIconsMap[visibility]}
+                //         alt={visibilityText[visibility]}
+                //         size="s"
+                //       />{' '}
+                //       <RelativeTime datetime={createdAtDate} format="micro" />
+                //     </Link>
+                //   )}
+                // >
+                //   {StatusMenuItems}
+                // </Menu>
+                <span class="time">
                   <Icon
                     icon={visibilityIconsMap[visibility]}
                     alt={visibilityText[visibility]}
+                    size="s"
                   />{' '}
-                  <a href={url} target="_blank" rel="noopener noreferrer">
-                    <time
-                      class="created"
-                      datetime={createdAtDate.toISOString()}
-                      title={createdAtDate.toLocaleString()}
-                    >
-                      {createdDateText}
-                    </time>
-                  </a>
-                  {editedAt && (
-                    <>
-                      {' '}
-                      &bull; <Icon icon="pencil" alt="Edited" />{' '}
-                      <time
-                        tabIndex="0"
-                        class="edited"
-                        datetime={editedAtDate.toISOString()}
-                        onClick={() => {
-                          setShowEdited(id);
-                        }}
-                      >
-                        {editedDateText}
-                      </time>
-                    </>
-                  )}
-                </>
+                  <RelativeTime datetime={createdAtDate} format="micro" />
+                </span>
+              ))}
+          </div>
+          {visibility === 'direct' && (
+            <>
+              <div class="status-direct-badge">Private mention</div>{' '}
+            </>
+          )}
+          {!withinContext && (
+            <>
+              {isThread ? (
+                <div class="status-thread-badge">
+                  <Icon icon="thread" size="s" />
+                  Thread
+                  {snapStates.statusThreadNumber[sKey]
+                    ? ` ${snapStates.statusThreadNumber[sKey]}/X`
+                    : ''}
+                </div>
+              ) : (
+                !!inReplyToId &&
+                !!inReplyToAccount &&
+                (!!spoilerText ||
+                  !mentions.find((mention) => {
+                    return mention.id === inReplyToAccountId;
+                  })) && (
+                  <div class="status-reply-badge">
+                    <Icon icon="reply" />{' '}
+                    <NameText
+                      account={inReplyToAccount}
+                      instance={instance}
+                      short
+                    />
+                  </div>
+                )
               )}
-            </div>
-            <div class={`actions ${_deleted ? 'disabled' : ''}`}>
-              <div class="action has-count">
-                <StatusButton
-                  title="Reply"
-                  alt="Comments"
-                  class="reply-button"
-                  icon="comment"
-                  count={repliesCount}
-                  onClick={replyStatus}
+            </>
+          )}
+          <div
+            class={`content-container ${
+              spoilerText || sensitive ? 'has-spoiler' : ''
+            } ${showSpoiler ? 'show-spoiler' : ''} ${
+              showSpoilerMedia ? 'show-media' : ''
+            }`}
+            data-content-text-weight={contentTextWeight ? textWeight() : null}
+            style={
+              (isSizeLarge || contentTextWeight) && {
+                '--content-text-weight': textWeight(),
+              }
+            }
+          >
+            {!!spoilerText && (
+              <>
+                <div
+                  class="content spoiler-content"
+                  lang={language}
+                  dir="auto"
+                  ref={spoilerContentRef}
+                  data-read-more={readMoreText}
+                >
+                  <p>
+                    <EmojiText text={spoilerText} emojis={emojis} />
+                  </p>
+                </div>
+                {readingExpandSpoilers || previewMode ? (
+                  <div class="spoiler-divider">
+                    <Icon icon="eye-open" /> Content warning
+                  </div>
+                ) : (
+                  <button
+                    class={`light spoiler-button ${
+                      showSpoiler ? 'spoiling' : ''
+                    }`}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (showSpoiler) {
+                        delete states.spoilers[id];
+                        if (!readingExpandSpoilers) {
+                          delete states.spoilersMedia[id];
+                        }
+                      } else {
+                        states.spoilers[id] = true;
+                        if (!readingExpandSpoilers) {
+                          states.spoilersMedia[id] = true;
+                        }
+                      }
+                    }}
+                  >
+                    <Icon icon={showSpoiler ? 'eye-open' : 'eye-close'} />{' '}
+                    {showSpoiler ? 'Show less' : 'Show content'}
+                  </button>
+                )}
+              </>
+            )}
+            {!!content && (
+              <div
+                class="content"
+                ref={contentRef}
+                data-read-more={readMoreText}
+              >
+                <PostContent
+                  post={status}
+                  instance={instance}
+                  previewMode={previewMode}
                 />
+                <QuoteStatuses id={id} instance={instance} level={quoted} />
               </div>
-              {/* <div class="action has-count">
+            )}
+            {!!poll && (
+              <Poll
+                lang={language}
+                poll={poll}
+                readOnly={readOnly || !sameInstance || !authenticated}
+                onUpdate={(newPoll) => {
+                  states.statuses[sKey].poll = newPoll;
+                }}
+                refresh={() => {
+                  return masto.v1.polls
+                    .$select(poll.id)
+                    .fetch()
+                    .then((pollResponse) => {
+                      states.statuses[sKey].poll = pollResponse;
+                    })
+                    .catch((e) => {}); // Silently fail
+                }}
+                votePoll={(choices) => {
+                  return masto.v1.polls
+                    .$select(poll.id)
+                    .votes.create({
+                      choices,
+                    })
+                    .then((pollResponse) => {
+                      states.statuses[sKey].poll = pollResponse;
+                    })
+                    .catch((e) => {}); // Silently fail
+                }}
+              />
+            )}
+            {(((enableTranslate || inlineTranslate) &&
+              !!content.trim() &&
+              !!getHTMLText(emojifyText(content, emojis)) &&
+              differentLanguage) ||
+              forceTranslate) && (
+              <TranslationBlock
+                forceTranslate={forceTranslate || inlineTranslate}
+                mini={!isSizeLarge && !withinContext}
+                sourceLanguage={language}
+                text={getPostText(status)}
+              />
+            )}
+            {!previewMode &&
+              sensitive &&
+              !!mediaAttachments.length &&
+              readingExpandMedia !== 'show_all' && (
+                <button
+                  class={`plain spoiler-media-button ${
+                    showSpoilerMedia ? 'spoiling' : ''
+                  }`}
+                  type="button"
+                  hidden={!readingExpandSpoilers && !!spoilerText}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (showSpoilerMedia) {
+                      delete states.spoilersMedia[id];
+                    } else {
+                      states.spoilersMedia[id] = true;
+                    }
+                  }}
+                >
+                  <Icon icon={showSpoilerMedia ? 'eye-open' : 'eye-close'} />{' '}
+                  {showSpoilerMedia ? 'Show less' : 'Show media'}
+                </button>
+              )}
+            {!!mediaAttachments.length && (
+              <MultipleMediaFigure
+                lang={language}
+                enabled={showMultipleMediaCaptions}
+                captionChildren={captionChildren}
+              >
+                <div
+                  ref={mediaContainerRef}
+                  class={`media-container media-eq${mediaAttachments.length} ${
+                    mediaAttachments.length > 2 ? 'media-gt2' : ''
+                  } ${mediaAttachments.length > 4 ? 'media-gt4' : ''}`}
+                >
+                  {displayedMediaAttachments.map((media, i) => (
+                    <Media
+                      key={media.id}
+                      media={media}
+                      autoAnimate={isSizeLarge}
+                      showCaption={mediaAttachments.length === 1}
+                      allowLongerCaption={
+                        !content && mediaAttachments.length === 1
+                      }
+                      lang={language}
+                      altIndex={
+                        showMultipleMediaCaptions &&
+                        !!media.description &&
+                        i + 1
+                      }
+                      to={`/${instance}/s/${id}?${
+                        withinContext ? 'media' : 'media-only'
+                      }=${i + 1}`}
+                      onClick={
+                        onMediaClick
+                          ? (e) => {
+                              onMediaClick(e, i, media, status);
+                            }
+                          : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              </MultipleMediaFigure>
+            )}
+            {!!card &&
+              /^https/i.test(card?.url) &&
+              !sensitive &&
+              !spoilerText &&
+              !poll &&
+              !mediaAttachments.length &&
+              !snapStates.statusQuotes[sKey] && (
+                <Card
+                  card={card}
+                  selfReferential={
+                    card?.url === status.url || card?.url === status.uri
+                  }
+                  instance={currentInstance}
+                />
+              )}
+          </div>
+          {!isSizeLarge && showCommentCount && (
+            <div class="content-comment-hint insignificant">
+              <Icon icon="comment2" alt="Replies" /> {repliesCount}
+            </div>
+          )}
+          {(
+            <>
+              <div class="extra-meta">
+                {_deleted ? (
+                  <span class="status-deleted-tag">Deleted</span>
+                ) : isSizeLarge && (
+                  <>
+                    {/* <Icon
+                      icon={visibilityIconsMap[visibility]}
+                      alt={visibilityText[visibility]}
+                    /> */}
+                    <span>{visibilityText[visibility]}</span> &bull;{' '}
+                    <a href={url} target="_blank" rel="noopener noreferrer">
+                      <time
+                        class="created"
+                        datetime={createdAtDate.toISOString()}
+                        title={createdAtDate.toLocaleString()}
+                      >
+                        {createdDateText}
+                      </time>
+                    </a>
+                    {editedAt && (
+                      <>
+                        {' '}
+                        &bull; <Icon icon="pencil" alt="Edited" />{' '}
+                        <time
+                          tabIndex="0"
+                          class="edited"
+                          datetime={editedAtDate.toISOString()}
+                          onClick={() => {
+                            setShowEdited(id);
+                          }}
+                        >
+                          {editedDateText}
+                        </time>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+              {!!emojiReactions?.length && (
+                <div class="emoji-reactions">
+                  {emojiReactions.map((emojiReaction) => {
+                    const { name, count, me } = emojiReaction;
+                    const isShortCode = /^:.+?:$/.test(name);
+                    if (isShortCode) {
+                      const emoji = emojis.find(
+                        (e) =>
+                          e.shortcode ===
+                          name.replace(/^:/, '').replace(/:$/, ''),
+                      );
+                      if (emoji) {
+                        return (
+                          <span
+                            class={`emoji-reaction tag ${
+                              me ? '' : 'insignificant'
+                            }`}
+                          >
+                            <CustomEmoji
+                              alt={name}
+                              url={emoji.url}
+                              staticUrl={emoji.staticUrl}
+                            />
+                            {count}
+                          </span>
+                        );
+                      }
+                    }
+                    return (
+                      <span
+                        class={`emoji-reaction tag ${
+                          me ? '' : 'insignificant'
+                        }`}
+                      >
+                        {name} {count}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <div class={`actions ${_deleted ? 'disabled' : ''}`}>
+                <div class="action has-count">
+                  <StatusButton
+                    title="Reply"
+                    alt="Comments"
+                    class="reply-button"
+                    icon="comment"
+                    count={repliesCount}
+                    onClick={replyStatus}
+                  />
+                </div>
+                {/* <div class="action has-count">
                 <StatusButton
                   checked={reblogged}
                   title={['Boost', 'Unboost']}
@@ -1790,12 +1999,26 @@ function Status({
                   disabled={!canBoost}
                   onClick={confirmBoostStatus}
                   confirmLabel={
-                      <>
-                        <a href="javascript:void(0)">
-                          <Icon icon="rocket" />
-                          <span >{reblogged ? 'Unboost?' : 'Boost to everyone?'}</span>
-                        </a>
-                     </>
+                    <>
+                      <a href="javascript:void(0)">
+                        <Icon icon="rocket" />
+                        <span>{reblogged ? 'Unboost' : 'Boost'}</span>
+                      </a>
+                    </>
+                  }
+                  menuExtras={
+                    <MenuItem
+                      onClick={() => {
+                        states.showCompose = {
+                          draftStatus: {
+                            status: `\n${url}`,
+                          },
+                        };
+                      }}
+                    >
+                      <Icon icon="quote" />
+                      <span>Quote</span>
+                    </MenuItem>
                   }
                   menuFooter={
                     mediaNoDesc &&
@@ -1807,7 +2030,7 @@ function Status({
                     )
                   }
                 >
-                  <div class="action has-count" onClick={(e) => {e.preventDefault();}}>
+                  <div class="action has-count"  onClick={(e) => {e.preventDefault();}}>
                     <StatusButton
                       checked={reblogged}
                       title={['Boost', 'Unboost']}
@@ -1820,80 +2043,97 @@ function Status({
                     />
                   </div>
                 </MenuConfirm>
-              <div class="action has-count">
-                <StatusButton
-                  checked={favourited}
-                  title={['Like', 'Unlike']}
-                  alt={['Like', 'Liked']}
-                  class="favourite-button"
-                  icon="heart"
-                  count={favouritesCount}
-                  onClick={favouriteStatus}
-                />
+                <div class="action has-count">
+                  <StatusButton
+                    checked={favourited}
+                    title={['Like', 'Unlike']}
+                    alt={['Like', 'Liked']}
+                    class="favourite-button"
+                    icon="heart"
+                    count={favouritesCount}
+                    onClick={favouriteStatus}
+                  />
+                </div>
+                <div class="action">
+                  <StatusButton
+                    checked={bookmarked}
+                    title={['Bookmark', 'Unbookmark']}
+                    alt={['Bookmark', 'Bookmarked']}
+                    class="bookmark-button"
+                    icon="bookmark"
+                    onClick={bookmarkStatus}
+                  />
+                </div>
+                {isSizeLarge && (
+                <Menu2
+                  portal={{
+                    target:
+                      document.querySelector('.status-deck') || document.body,
+                  }}
+                  align="end"
+                  gap={4}
+                  overflow="auto"
+                  viewScroll="close"
+                  menuButton={
+                    <div class="action">
+                      <button
+                        type="button"
+                        title="More"
+                        class="plain more-button"
+                      >
+                        <Icon icon="more" size="l" alt="More" />
+                      </button>
+                    </div>
+                  }
+                >
+                  {StatusMenuItems}
+                </Menu2>
+                )}
               </div>
-              <div class="action">
-                <StatusButton
-                  checked={bookmarked}
-                  title={['Bookmark', 'Unbookmark']}
-                  alt={['Bookmark', 'Bookmarked']}
-                  class="bookmark-button"
-                  icon="bookmark"
-                  onClick={bookmarkStatus}
-                />
-              </div>
-              {isSizeLarge && (
-              <Menu2
-                portal={{
-                  target:
-                    document.querySelector('.status-deck') || document.body,
-                }}
-                align="end"
-                gap={4}
-                overflow="auto"
-                viewScroll="close"
-                menuButton={
-                  <div class="action">
-                    <button
-                      type="button"
-                      title="More"
-                      class="plain more-button"
-                    >
-                      <Icon icon="more" size="l" alt="More" />
-                    </button>
-                  </div>
-                }
-              >
-                {StatusMenuItems}
-              </Menu2>
-              )}
-            </div>
-          </>
+            </>
+          )}
+        </div>
+        {!!showEdited && (
+          <Modal
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowEdited(false);
+                // statusRef.current?.focus();
+              }
+            }}
+          >
+            <EditedAtModal
+              statusID={showEdited}
+              instance={instance}
+              fetchStatusHistory={() => {
+                return masto.v1.statuses.$select(showEdited).history.list();
+              }}
+              onClose={() => {
+                setShowEdited(false);
+                statusRef.current?.focus();
+              }}
+            />
+          </Modal>
         )}
-      </div>
-      {!!showEdited && (
-        <Modal
-          class="light"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowEdited(false);
-              // statusRef.current?.focus();
-            }
-          }}
-        >
-          <EditedAtModal
-            statusID={showEdited}
-            instance={instance}
-            fetchStatusHistory={() => {
-              return masto.v1.statuses.$select(showEdited).history.list();
+        {!!showEmbed && (
+          <Modal
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowEmbed(false);
+              }
             }}
-            onClose={() => {
-              setShowEdited(false);
-              statusRef.current?.focus();
-            }}
-          />
-        </Modal>
-      )}
-    </article>
+          >
+            <EmbedModal
+              post={status}
+              instance={instance}
+              onClose={() => {
+                setShowEmbed(false);
+              }}
+            />
+          </Modal>
+        )}
+      </article>
+    </>
   );
 }
 
@@ -1979,6 +2219,8 @@ function Card({ card, selfReferential, instance }) {
         states.showEmbedModal = {
           html,
           url: url || embedUrl,
+          width,
+          height,
         };
       }
     },
@@ -1996,10 +2238,13 @@ function Card({ card, selfReferential, instance }) {
       const w = 44;
       const h = 44;
       const blurhashPixels = decodeBlurHash(blurhash, w, h);
-      const canvas = document.createElement('canvas');
+      const canvas = window.OffscreenCanvas
+        ? new OffscreenCanvas(1, 1)
+        : document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
       const imageData = ctx.createImageData(w, h);
       imageData.data.set(blurhashPixels);
       ctx.putImageData(imageData, 0, 0);
@@ -2034,13 +2279,19 @@ function Card({ card, selfReferential, instance }) {
           />
         </div>
         <div class="meta-container">
-          <p class="meta domain" dir="auto">
-            {domain}
+          <p class="meta domain">
+            <span class="domain">{domain}</span>{' '}
+            {!!publishedAt && <>&middot; </>}
+            {!!publishedAt && (
+              <>
+                <RelativeTime datetime={publishedAt} format="micro" />
+              </>
+            )}
           </p>
-          <p class="title" dir="auto">
+          <p class="title" dir="auto" title={title}>
             {title}
           </p>
-          <p class="meta" dir="auto">
+          <p class="meta" dir="auto" title={description}>
             {description ||
               (!!publishedAt && (
                 <RelativeTime datetime={publishedAt} format="micro" />
@@ -2077,7 +2328,11 @@ function Card({ card, selfReferential, instance }) {
         // Get ID from e.g. https://www.youtube.com/watch?v=[VIDEO_ID]
         const videoID = url.match(/watch\?v=([^&]+)/)?.[1];
         if (videoID) {
-          return <lite-youtube videoid={videoID} nocookie></lite-youtube>;
+          return (
+            <a class="card video" onClick={handleClick}>
+              <lite-youtube videoid={videoID} nocookie></lite-youtube>
+            </a>
+          );
         }
       }
       // return (
@@ -2103,10 +2358,22 @@ function Card({ card, selfReferential, instance }) {
         >
           <div class="meta-container">
             <p class="meta domain">
-              <Icon icon="link" size="s" /> <span>{domain}</span>
+              <span class="domain">
+                <Icon icon="link" size="s" /> <span>{domain}</span>
+              </span>{' '}
+              {!!publishedAt && <>&middot; </>}
+              {!!publishedAt && (
+                <>
+                  <RelativeTime datetime={publishedAt} format="micro" />
+                </>
+              )}
             </p>
-            <p class="title">{title}</p>
-            <p class="meta">{description || providerName || authorName}</p>
+            <p class="title" title={title}>
+              {title}
+            </p>
+            <p class="meta" title={description || providerName || authorName}>
+              {description || providerName || authorName}
+            </p>
           </div>
         </a>
       );
@@ -2190,13 +2457,369 @@ function EditedAtModal({
   );
 }
 
+function generateHTMLCode(post, instance, level = 0) {
+  const {
+    account: {
+      url: accountURL,
+      displayName,
+      acct,
+      username,
+      emojis: accountEmojis,
+      bot,
+      group,
+    },
+    id,
+    poll,
+    spoilerText,
+    language,
+    editedAt,
+    createdAt,
+    content,
+    mediaAttachments,
+    url,
+    emojis,
+  } = post;
+
+  const sKey = statusKey(id, instance);
+  const quotes = states.statusQuotes[sKey] || [];
+  const uniqueQuotes = quotes.filter(
+    (q, i, arr) => arr.findIndex((q2) => q2.url === q.url) === i,
+  );
+  const quoteStatusesHTML =
+    uniqueQuotes.length && level <= 2
+      ? uniqueQuotes
+          .map((quote) => {
+            const { id, instance } = quote;
+            const sKey = statusKey(id, instance);
+            const s = states.statuses[sKey];
+            if (s) {
+              return generateHTMLCode(s, instance, ++level);
+            }
+          })
+          .join('')
+      : '';
+
+  const createdAtDate = new Date(createdAt);
+  // const editedAtDate = editedAt && new Date(editedAt);
+
+  const contentHTML =
+    emojifyText(content, emojis) +
+    '\n' +
+    quoteStatusesHTML +
+    '\n' +
+    (poll?.options?.length
+      ? `
+        <p>📊:</p>
+        <ul>
+        ${poll.options
+          .map(
+            (option) => `
+              <li>
+                ${option.title}
+                ${option.votesCount >= 0 ? ` (${option.votesCount})` : ''}
+              </li>
+            `,
+          )
+          .join('')}
+        </ul>`
+      : '') +
+    (mediaAttachments.length > 0
+      ? '\n' +
+        mediaAttachments
+          .map((media) => {
+            const {
+              description,
+              meta,
+              previewRemoteUrl,
+              previewUrl,
+              remoteUrl,
+              url,
+              type,
+            } = media;
+            const { original = {}, small } = meta || {};
+            const width = small?.width || original?.width;
+            const height = small?.height || original?.height;
+
+            // Prefer remote over original
+            const sourceMediaURL = remoteUrl || url;
+            const previewMediaURL = previewRemoteUrl || previewUrl;
+            const mediaURL = previewMediaURL || sourceMediaURL;
+
+            const sourceMediaURLObj = sourceMediaURL
+              ? new URL(sourceMediaURL)
+              : null;
+            const isVideoMaybe =
+              type === 'unknown' &&
+              sourceMediaURLObj &&
+              /\.(mp4|m4r|m4v|mov|webm)$/i.test(sourceMediaURLObj.pathname);
+            const isAudioMaybe =
+              type === 'unknown' &&
+              sourceMediaURLObj &&
+              /\.(mp3|ogg|wav|m4a|m4p|m4b)$/i.test(sourceMediaURLObj.pathname);
+            const isImage =
+              type === 'image' ||
+              (type === 'unknown' &&
+                previewMediaURL &&
+                !isVideoMaybe &&
+                !isAudioMaybe);
+            const isVideo = type === 'gifv' || type === 'video' || isVideoMaybe;
+            const isAudio = type === 'audio' || isAudioMaybe;
+
+            let mediaHTML = '';
+            if (isImage) {
+              mediaHTML = `<img src="${mediaURL}" width="${width}" height="${height}" alt="${description}" loading="lazy" />`;
+            } else if (isVideo) {
+              mediaHTML = `
+                <video src="${sourceMediaURL}" width="${width}" height="${height}" controls preload="auto" poster="${previewMediaURL}" loading="lazy"></video>
+                ${description ? `<figcaption>${description}</figcaption>` : ''}
+              `;
+            } else if (isAudio) {
+              mediaHTML = `
+                <audio src="${sourceMediaURL}" controls preload="auto"></audio>
+                ${description ? `<figcaption>${description}</figcaption>` : ''}
+              `;
+            } else {
+              mediaHTML = `
+                <a href="${sourceMediaURL}">📄 ${
+                description || sourceMediaURL
+              }</a>
+              `;
+            }
+
+            return `<figure>${mediaHTML}</figure>`;
+          })
+          .join('\n')
+      : '');
+
+  const htmlCode = `
+    <blockquote lang="${language}" cite="${url}">
+      ${
+        spoilerText
+          ? `
+            <details>
+              <summary>${spoilerText}</summary>
+              ${contentHTML}
+            </details>
+          `
+          : contentHTML
+      }
+      <footer>
+        — ${emojifyText(
+          displayName,
+          accountEmojis,
+        )} (@${acct}) <a href="${url}"><time datetime="${createdAtDate.toISOString()}">${createdAtDate.toLocaleString()}</time></a>
+      </footer>
+    </blockquote>
+  `;
+
+  return prettify(htmlCode);
+}
+
+function EmbedModal({ post, instance, onClose }) {
+  const {
+    account: {
+      url: accountURL,
+      displayName,
+      username,
+      emojis: accountEmojis,
+      bot,
+      group,
+    },
+    id,
+    poll,
+    spoilerText,
+    language,
+    editedAt,
+    createdAt,
+    content,
+    mediaAttachments,
+    url,
+    emojis,
+  } = post;
+
+  const htmlCode = generateHTMLCode(post, instance);
+  return (
+    <div id="embed-post" class="sheet">
+      {!!onClose && (
+        <button type="button" class="sheet-close" onClick={onClose}>
+          <Icon icon="x" />
+        </button>
+      )}
+      <header>
+        <h2>Embed post</h2>
+      </header>
+      <main tabIndex="-1">
+        <h3>HTML Code</h3>
+        <textarea
+          class="embed-code"
+          readonly
+          onClick={(e) => {
+            e.target.select();
+          }}
+        >
+          {htmlCode}
+        </textarea>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              navigator.clipboard.writeText(htmlCode);
+              showToast('HTML code copied');
+            } catch (e) {
+              console.error(e);
+              showToast('Unable to copy HTML code');
+            }
+          }}
+        >
+          <Icon icon="clipboard" /> <span>Copy</span>
+        </button>
+        {!!mediaAttachments?.length && (
+          <section>
+            <p>Media attachments:</p>
+            <ol class="links-list">
+              {mediaAttachments.map((media) => {
+                return (
+                  <li key={media.id}>
+                    <a
+                      href={media.remoteUrl || media.url}
+                      target="_blank"
+                      download
+                    >
+                      {media.remoteUrl || media.url}
+                    </a>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        )}
+        {!!accountEmojis?.length && (
+          <section>
+            <p>Account Emojis:</p>
+            <ul>
+              {accountEmojis.map((emoji) => {
+                return (
+                  <li key={emoji.shortcode}>
+                    <picture>
+                      <source
+                        srcset={emoji.staticUrl}
+                        media="(prefers-reduced-motion: reduce)"
+                      ></source>
+                      <img
+                        class="shortcode-emoji emoji"
+                        src={emoji.url}
+                        alt={`:${emoji.shortcode}:`}
+                        width="16"
+                        height="16"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </picture>{' '}
+                    <code>:{emoji.shortcode}:</code> (
+                    <a href={emoji.url} target="_blank" download>
+                      url
+                    </a>
+                    )
+                    {emoji.staticUrl ? (
+                      <>
+                        {' '}
+                        (
+                        <a href={emoji.staticUrl} target="_blank" download>
+                          static
+                        </a>
+                        )
+                      </>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+        {!!emojis?.length && (
+          <section>
+            <p>Emojis:</p>
+            <ul>
+              {emojis.map((emoji) => {
+                return (
+                  <li key={emoji.shortcode}>
+                    <picture>
+                      <source
+                        srcset={emoji.staticUrl}
+                        media="(prefers-reduced-motion: reduce)"
+                      ></source>
+                      <img
+                        class="shortcode-emoji emoji"
+                        src={emoji.url}
+                        alt={`:${emoji.shortcode}:`}
+                        width="16"
+                        height="16"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </picture>{' '}
+                    <code>:{emoji.shortcode}:</code> (
+                    <a href={emoji.url} target="_blank" download>
+                      url
+                    </a>
+                    )
+                    {emoji.staticUrl ? (
+                      <>
+                        {' '}
+                        (
+                        <a href={emoji.staticUrl} target="_blank" download>
+                          static
+                        </a>
+                        )
+                      </>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+        <section>
+          <small>
+            <p>Notes:</p>
+            <ul>
+              <li>
+                This is static, unstyled and scriptless. You may need to apply
+                your own styles and edit as needed.
+              </li>
+              <li>
+                Polls are not interactive, becomes a list with vote counts.
+              </li>
+              <li>
+                Media attachments can be images, videos, audios or any file
+                types.
+              </li>
+              <li>Post could be edited or deleted later.</li>
+            </ul>
+          </small>
+        </section>
+        <h3>Preview</h3>
+        <output
+          class="embed-preview"
+          dangerouslySetInnerHTML={{ __html: htmlCode }}
+        />
+        <p>
+          <small>Note: This preview is lightly styled.</small>
+        </p>
+      </main>
+    </div>
+  );
+}
+
 function StatusButton({
   checked,
   count,
   class: className,
   title,
   alt,
+  size,
   icon,
+  iconSize = 'l',
   onClick,
   ...props
 }) {
@@ -2224,7 +2847,9 @@ function StatusButton({
     <button
       type="button"
       title={buttonTitle}
-      class={`plain ${className} ${checked ? 'checked' : ''}`}
+      class={`plain ${size ? 'small' : ''} ${className} ${
+        checked ? 'checked' : ''
+      }`}
       onClick={(e) => {
         if (!onClick) return;
         e.preventDefault();
@@ -2233,7 +2858,7 @@ function StatusButton({
       }}
       {...props}
     >
-      <Icon icon={icon} size="l" alt={iconAlt} />
+      <Icon icon={icon} size={iconSize} alt={iconAlt} />
       {!!count && (
         <>
           {' '}
@@ -2279,6 +2904,65 @@ function nicePostURL(url) {
         <span class="more-insignificant">{path}</span>
       )}
     </>
+  );
+}
+
+function StatusCompact({ sKey }) {
+  const snapStates = useSnapshot(states);
+  const statusReply = snapStates.statusReply[sKey];
+  if (!statusReply) return null;
+
+  const { id, instance } = statusReply;
+  const status = getStatus(id, instance);
+  if (!status) return null;
+
+  const {
+    sensitive,
+    spoilerText,
+    account: { avatar, avatarStatic, bot },
+    visibility,
+    content,
+    language,
+    filtered,
+  } = status;
+  if (sensitive || spoilerText) return null;
+  if (!content) return null;
+
+  const srKey = statusKey(id, instance);
+  const statusPeekText = statusPeek(status);
+
+  const filterContext = useContext(FilterContext);
+  const filterInfo = isFiltered(filtered, filterContext);
+
+  if (filterInfo?.action === 'hide') return null;
+
+  const filterTitleStr = filterInfo?.titlesStr || '';
+
+  return (
+    <article
+      class={`status compact-reply ${
+        visibility === 'direct' ? 'visibility-direct' : ''
+      }`}
+      tabindex="-1"
+      data-state-post-id={srKey}
+    >
+      <Avatar url={avatarStatic || avatar} squircle={bot} />
+      <div
+        class="content-compact"
+        title={statusPeekText}
+        lang={language}
+        dir="auto"
+      >
+        {filterInfo ? (
+          <b class="status-filtered-badge badge-meta" title={filterTitleStr}>
+            <span>Filtered</span>
+            <span>{filterTitleStr}</span>
+          </b>
+        ) : (
+          <span>{statusPeekText}</span>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -2341,7 +3025,7 @@ function FilteredStatus({
           : ''
       }
       {...containerProps}
-      title={statusPeekText}
+      // title={statusPeekText}
       onContextMenu={(e) => {
         e.preventDefault();
         setShowPeek(true);
@@ -2398,7 +3082,6 @@ function FilteredStatus({
       </article>
       {!!showPeek && (
         <Modal
-          class="light"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowPeek(false);
@@ -2450,20 +3133,22 @@ const QuoteStatuses = memo(({ id, instance, level = 0 }) => {
 
   return uniqueQuotes.map((q) => {
     return (
-      <Link
-        key={q.instance + q.id}
-        to={`${q.instance ? `/${q.instance}` : ''}/s/${q.id}`}
-        class="status-card-link"
-        data-read-more="Read more →"
-      >
-        <Status
-          statusID={q.id}
-          instance={q.instance}
-          size="s"
-          quoted={level + 1}
-          enableCommentHint
-        />
-      </Link>
+      <LazyShazam>
+        <Link
+          key={q.instance + q.id}
+          to={`${q.instance ? `/${q.instance}` : ''}/s/${q.id}`}
+          class="status-card-link"
+          data-read-more="Read more →"
+        >
+          <Status
+            statusID={q.id}
+            instance={q.instance}
+            size="s"
+            quoted={level + 1}
+            enableCommentHint
+          />
+        </Link>
+      </LazyShazam>
     );
   });
 });

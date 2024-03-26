@@ -37,6 +37,7 @@ const states = proxy({
   unfurledLinks: {},
   statusQuotes: {},
   statusFollowedTags: {},
+  statusReply: {},
   accounts: {},
   routeNotification: null,
   // Modals
@@ -51,6 +52,7 @@ const states = proxy({
   showGenericAccounts: false,
   showMediaAlt: false,
   showEmbedModal: false,
+  showReportModal: false,
   // Shortcuts
   shortcuts: [],
   // Settings
@@ -64,6 +66,7 @@ const states = proxy({
     contentTranslationTargetLanguage: null,
     contentTranslationHideLanguages: [],
     contentTranslationAutoInline: false,
+    shortcutSettingsCloudImportExport: false,
     mediaAltGenerator: false,
     cloakMode: false,
   },
@@ -95,6 +98,8 @@ export function initStates() {
     store.account.get('settings-contentTranslationHideLanguages') || [];
   states.settings.contentTranslationAutoInline =
     store.account.get('settings-contentTranslationAutoInline') ?? false;
+  states.settings.shortcutSettingsCloudImportExport =
+    store.account.get('settings-shortcutSettingsCloudImportExport') ?? false;
   states.settings.mediaAltGenerator =
     store.account.get('settings-mediaAltGenerator') ?? false;
   states.settings.cloakMode = store.account.get('settings-cloakMode') ?? false;
@@ -124,6 +129,9 @@ subscribe(states, (changes) => {
     }
     if (path.join('.') === 'settings.contentTranslationAutoInline') {
       store.account.set('settings-contentTranslationAutoInline', !!value);
+    }
+    if (path.join('.') === 'settings.shortcutSettingsCloudImportExport') {
+      store.account.set('settings-shortcutSettingsCloudImportExport', !!value);
     }
     if (path.join('.') === 'settings.contentTranslationTargetLanguage') {
       console.log('SET', value);
@@ -193,9 +201,19 @@ export function saveStatus(status, instance, opts) {
     if (oldStatus?._pinned) status._pinned = oldStatus._pinned;
     // if (oldStatus?._filtered) status._filtered = oldStatus._filtered;
     states.statuses[key] = status;
-    if (status.reblog) {
-      const key = statusKey(status.reblog.id, instance);
-      states.statuses[key] = status.reblog;
+    if (status.reblog?.id) {
+      const srKey = statusKey(status.reblog.id, instance);
+      states.statuses[srKey] = status.reblog;
+    }
+    if (status.quote?.id) {
+      const sKey = statusKey(status.quote.id, instance);
+      states.statuses[sKey] = status.quote;
+      states.statusQuotes[key] = [
+        {
+          id: status.quote.id,
+          instance,
+        },
+      ];
     }
   });
 

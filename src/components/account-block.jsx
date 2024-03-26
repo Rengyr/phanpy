@@ -33,7 +33,7 @@ function AccountBlock({
         <span>
           <b>████████</b>
           <br />
-          <span class="account-block-acct">@██████</span>
+          <span class="account-block-acct">██████</span>
         </span>
       </div>
     );
@@ -61,6 +61,8 @@ function AccountBlock({
     note,
     group,
     followersCount,
+    createdAt,
+    locked,
   } = account;
   let [_, acct1, acct2] = acct.match(/([^@]+)(@.+)/i) || [, acct];
   if (accountInstance) {
@@ -85,7 +87,7 @@ function AccountBlock({
       class="account-block"
       href={url}
       target={external ? '_blank' : null}
-      title={`@${acct}`}
+      title={acct2 ? acct : `@${acct}`}
       onClick={(e) => {
         if (external) return;
         e.preventDefault();
@@ -119,9 +121,16 @@ function AccountBlock({
           </>
         )}{' '}
         <span class="account-block-acct">
-          @{acct1}
+          {acct2 ? '' : '@'}
+          {acct1}
           <wbr />
           {acct2}
+          {locked && (
+            <>
+              {' '}
+              <Icon icon="lock" size="s" alt="Locked" />
+            </>
+          )}
         </span>
         {showActivity && (
           <>
@@ -188,6 +197,21 @@ function AccountBlock({
                 />
               </span>
             )}
+            {!bot &&
+              !group &&
+              !hasRelationship &&
+              !followersCount &&
+              !verifiedField &&
+              !!createdAt && (
+                <span class="created-at">
+                  Joined{' '}
+                  <time datetime={createdAt}>
+                    {niceDateTime(createdAt, {
+                      hideTime: true,
+                    })}
+                  </time>
+                </span>
+              )}
           </div>
         )}
       </span>

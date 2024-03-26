@@ -1,3 +1,4 @@
+import { lazy } from 'preact/compat';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { subscribe, useSnapshot } from 'valtio';
 
@@ -8,14 +9,18 @@ import showToast from '../utils/show-toast';
 import states from '../utils/states';
 
 import AccountSheet from './account-sheet';
-import Compose from './compose';
+// import Compose from './compose';
 import Drafts from './drafts';
 import EmbedModal from './embed-modal';
 import GenericAccounts from './generic-accounts';
+import IntlSegmenterSuspense from './intl-segmenter-suspense';
 import MediaAltModal from './media-alt-modal';
 import MediaModal from './media-modal';
 import Modal from './modal';
+import ReportModal from './report-modal';
 import ShortcutsSettings from './shortcuts-settings';
+
+const Compose = lazy(() => import('./compose'));
 
 subscribe(states, (changes) => {
   for (const [action, path, value, prevValue] of changes) {
@@ -34,50 +39,52 @@ export default function Modals() {
   return (
     <>
       {!!snapStates.showCompose && (
-        <Modal>
-          <Compose
-            replyToStatus={
-              typeof snapStates.showCompose !== 'boolean'
-                ? snapStates.showCompose.replyToStatus
-                : window.__COMPOSE__?.replyToStatus || null
-            }
-            editStatus={
-              states.showCompose?.editStatus ||
-              window.__COMPOSE__?.editStatus ||
-              null
-            }
-            draftStatus={
-              states.showCompose?.draftStatus ||
-              window.__COMPOSE__?.draftStatus ||
-              null
-            }
-            onClose={(results) => {
-              const { newStatus, instance, type } = results || {};
-              states.showCompose = false;
-              window.__COMPOSE__ = null;
-              if (newStatus) {
-                states.reloadStatusPage++;
-                showToast({
-                  text: {
-                    post: 'Post published. Check it out.',
-                    reply: 'Reply posted. Check it out.',
-                    edit: 'Post updated. Check it out.',
-                  }[type || 'post'],
-                  delay: 1000,
-                  duration: 10_000, // 10 seconds
-                  onClick: (toast) => {
-                    toast.hideToast();
-                    states.prevLocation = location;
-                    navigate(
-                      instance
-                        ? `/${instance}/s/${newStatus.id}`
-                        : `/s/${newStatus.id}`,
-                    );
-                  },
-                });
+        <Modal class="solid">
+          <IntlSegmenterSuspense>
+            <Compose
+              replyToStatus={
+                typeof snapStates.showCompose !== 'boolean'
+                  ? snapStates.showCompose.replyToStatus
+                  : window.__COMPOSE__?.replyToStatus || null
               }
-            }}
-          />
+              editStatus={
+                states.showCompose?.editStatus ||
+                window.__COMPOSE__?.editStatus ||
+                null
+              }
+              draftStatus={
+                states.showCompose?.draftStatus ||
+                window.__COMPOSE__?.draftStatus ||
+                null
+              }
+              onClose={(results) => {
+                const { newStatus, instance, type } = results || {};
+                states.showCompose = false;
+                window.__COMPOSE__ = null;
+                if (newStatus) {
+                  states.reloadStatusPage++;
+                  showToast({
+                    text: {
+                      post: 'Post published. Check it out.',
+                      reply: 'Reply posted. Check it out.',
+                      edit: 'Post updated. Check it out.',
+                    }[type || 'post'],
+                    delay: 1000,
+                    duration: 10_000, // 10 seconds
+                    onClick: (toast) => {
+                      toast.hideToast();
+                      states.prevLocation = location;
+                      navigate(
+                        instance
+                          ? `/${instance}/s/${newStatus.id}`
+                          : `/s/${newStatus.id}`,
+                      );
+                    },
+                  });
+                }
+              }}
+            />
+          </IntlSegmenterSuspense>
         </Modal>
       )}
       {!!snapStates.showSettings && (
@@ -108,7 +115,6 @@ export default function Modals() {
       )}
       {!!snapStates.showAccount && (
         <Modal
-          class="light"
           onClose={() => {
             states.showAccount = false;
           }}
@@ -159,7 +165,6 @@ export default function Modals() {
       )}
       {!!snapStates.showShortcutsSettings && (
         <Modal
-          class="light"
           onClose={() => {
             states.showShortcutsSettings = false;
           }}
@@ -171,7 +176,6 @@ export default function Modals() {
       )}
       {!!snapStates.showGenericAccounts && (
         <Modal
-          class="light"
           onClose={() => {
             states.showGenericAccounts = false;
           }}
@@ -181,13 +185,13 @@ export default function Modals() {
             excludeRelationshipAttrs={
               snapStates.showGenericAccounts.excludeRelationshipAttrs
             }
+            postID={snapStates.showGenericAccounts.postID}
             onClose={() => (states.showGenericAccounts = false)}
           />
         </Modal>
       )}
       {!!snapStates.showMediaAlt && (
         <Modal
-          class="light"
           onClose={(e) => {
             states.showMediaAlt = false;
           }}
@@ -203,6 +207,7 @@ export default function Modals() {
       )}
       {!!snapStates.showEmbedModal && (
         <Modal
+          class="solid"
           onClose={() => {
             states.showEmbedModal = false;
           }}
@@ -210,8 +215,25 @@ export default function Modals() {
           <EmbedModal
             html={snapStates.showEmbedModal.html}
             url={snapStates.showEmbedModal.url}
+            width={snapStates.showEmbedModal.width}
+            height={snapStates.showEmbedModal.height}
             onClose={() => {
               states.showEmbedModal = false;
+            }}
+          />
+        </Modal>
+      )}
+      {!!snapStates.showReportModal && (
+        <Modal
+          onClose={() => {
+            states.showReportModal = false;
+          }}
+        >
+          <ReportModal
+            account={snapStates.showReportModal.account}
+            post={snapStates.showReportModal.post}
+            onClose={() => {
+              states.showReportModal = false;
             }}
           />
         </Modal>

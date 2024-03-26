@@ -54,6 +54,7 @@ const AltBadge = (props) => {
 };
 
 const MEDIA_CAPTION_LIMIT = 140;
+const MEDIA_CAPTION_LIMIT_LONGER = 280;
 export const isMediaCaptionLong = mem((caption) =>
   caption?.length
     ? caption.length > MEDIA_CAPTION_LIMIT ||
@@ -69,6 +70,7 @@ function Media({
   showOriginal,
   autoAnimate,
   showCaption,
+  allowLongerCaption,
   altIndex,
   onClick = () => {},
 }) {
@@ -151,11 +153,18 @@ function Media({
     [to],
   );
 
+  const remoteMediaURLObj = remoteMediaURL ? new URL(remoteMediaURL) : null;
   const isVideoMaybe =
     type === 'unknown' &&
-    /\.(mp4|m4a|m4p|m4b|m4r|m4v|mov|webm)$/i.test(remoteMediaURL);
+    remoteMediaURLObj &&
+    /\.(mp4|m4r|m4v|mov|webm)$/i.test(remoteMediaURLObj.pathname);
+  const isAudioMaybe =
+    type === 'unknown' &&
+    remoteMediaURLObj &&
+    /\.(mp3|ogg|wav|m4a|m4p|m4b)$/i.test(remoteMediaURLObj.pathname);
   const isImage =
-    type === 'image' || (type === 'unknown' && previewUrl && !isVideoMaybe);
+    type === 'image' ||
+    (type === 'unknown' && previewUrl && !isVideoMaybe && !isAudioMaybe);
 
   const parentRef = useRef();
   const [imageSmallerThanParent, setImageSmallerThanParent] = useState(false);
@@ -191,8 +200,15 @@ function Media({
         };
 
   const longDesc = isMediaCaptionLong(description);
-  const showInlineDesc =
+  let showInlineDesc =
     !!showCaption && !showOriginal && !!description && !longDesc;
+  if (
+    allowLongerCaption &&
+    !showInlineDesc &&
+    description?.length <= MEDIA_CAPTION_LIMIT_LONGER
+  ) {
+    showInlineDesc = true;
+  }
   const Figure = !showInlineDesc
     ? Fragment
     : (props) => {
@@ -484,7 +500,7 @@ function Media({
         </Parent>
       </Figure>
     );
-  } else if (type === 'audio') {
+  } else if (type === 'audio' || isAudioMaybe) {
     const formattedDuration = formatDuration(original.duration);
     return (
       <Figure>
@@ -508,6 +524,12 @@ function Media({
               height={height}
               data-orientation={orientation}
               loading="lazy"
+              onError={(e) => {
+                try {
+                  // Remove self if broken
+                  e.target?.remove?.();
+                } catch (e) {}
+              }}
             />
           ) : null}
           {!showOriginal && (

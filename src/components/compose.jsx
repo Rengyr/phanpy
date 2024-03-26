@@ -6,7 +6,6 @@ import { deepEqual } from 'fast-equals';
 import { forwardRef } from 'preact/compat';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { substring } from 'runes2';
 import stringLength from 'string-length';
 import { uid } from 'uid/single';
 import { useDebouncedCallback, useThrottledCallback } from 'use-debounce';
@@ -131,24 +130,38 @@ const SCAN_RE = new RegExp(
   'g',
 );
 
+const segmenter = new Intl.Segmenter();
 function highlightText(text, { maxCharacters = Infinity }) {
   // Accept text string, return formatted HTML string
-  let html = text;
+  // Escape all HTML special characters
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
   // Exceeded characters limit
   const { composerCharacterCount } = states;
-  let leftoverHTML = '';
   if (composerCharacterCount > maxCharacters) {
-    // NOTE: runes2 substring considers surrogate pairs
-    // const leftoverCount = composerCharacterCount - maxCharacters;
     // Highlight exceeded characters
-    leftoverHTML =
-      '<mark class="compose-highlight-exceeded">' +
-      // html.slice(-leftoverCount) +
-      substring(html, maxCharacters) +
-      '</mark>';
-    // html = html.slice(0, -leftoverCount);
-    html = substring(html, 0, maxCharacters);
-    return html + leftoverHTML;
+    let withinLimitHTML = '',
+      exceedLimitHTML = '';
+    const htmlSegments = segmenter.segment(html);
+    for (const { segment, index } of htmlSegments) {
+      if (index < maxCharacters) {
+        withinLimitHTML += segment;
+      } else {
+        exceedLimitHTML += segment;
+      }
+    }
+    if (exceedLimitHTML) {
+      exceedLimitHTML =
+        '<mark class="compose-highlight-exceeded">' +
+        exceedLimitHTML +
+        '</mark>';
+    }
+    return withinLimitHTML + exceedLimitHTML;
   }
 
   return html
@@ -160,6 +173,8 @@ function highlightText(text, { maxCharacters = Infinity }) {
       '$1<mark class="compose-highlight-emoji-shortcode">$2</mark>',
     ); // Emoji shortcodes
 }
+
+const rtf = new Intl.RelativeTimeFormat();
 
 function Compose({
   onClose,
@@ -222,6 +237,12 @@ function Compose({
   };
   const focusTextarea = () => {
     setTimeout(() => {
+      if (!textareaRef.current) return;
+      // status starts with newline, focus on first position
+      if (draftStatus?.status?.startsWith?.('\n')) {
+        textareaRef.current.selectionStart = 0;
+        textareaRef.current.selectionEnd = 0;
+      }
       console.debug('FOCUS textarea');
       textareaRef.current?.focus();
     }, 300);
@@ -618,6 +639,16 @@ function Compose({
     return [topLanguages, restLanguages];
   }, [language]);
 
+  const replyToStatusMonthsAgo = useMemo(
+    () =>
+      !!replyToStatus?.createdAt &&
+      Math.floor(
+        (Date.now() - new Date(replyToStatus.createdAt)) /
+          (1000 * 60 * 60 * 24 * 30),
+      ),
+    [replyToStatus],
+  );
+
   return (
     <div id="compose-container-outer">
       <div id="compose-container" class={standalone ? 'standalone' : ''}>
@@ -767,6 +798,16 @@ function Compose({
               Replying to @
               {replyToStatus.account.acct || replyToStatus.account.username}
               &rsquo;s post
+              {replyToStatusMonthsAgo >= 3 && (
+                <>
+                  {' '}
+                  (
+                  <strong>
+                    {rtf.format(-replyToStatusMonthsAgo, 'month')}
+                  </strong>
+                  )
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1247,7 +1288,6 @@ function Compose({
       </div>
       {showEmoji2Picker && (
         <Modal
-          class="light"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowEmoji2Picker(false);
@@ -1551,7 +1591,7 @@ const Textarea = forwardRef((props, ref) => {
         onKeyDown={(e) => {
           // Get line before cursor position after pressing 'Enter'
           const { key, target } = e;
-          if (key === 'Enter') {
+          if (key === 'Enter' && !(e.ctrlKey || e.metaKey)) {
             try {
               const { value, selectionStart } = target;
               const textBeforeCursor = value.slice(0, selectionStart);
@@ -1622,27 +1662,31 @@ function CharCountMeter({ maxCharacters = 500, hidden }) {
   const charCount = snapStates.composerCharacterCount;
   const leftChars = maxCharacters - charCount;
   if (hidden) {
-    return <meter class="donut" hidden />;
+    return <span class="char-counter" hidden />;
   }
   return (
-    <meter
-      class={`donut ${
-        leftChars <= -10
-          ? 'explode'
-          : leftChars <= 0
-          ? 'danger'
-          : leftChars <= 20
-          ? 'warning'
-          : ''
-      }`}
-      value={charCount}
-      max={maxCharacters}
-      data-left={leftChars}
+    <span
+      class="char-counter"
       title={`${leftChars}/${maxCharacters}`}
       style={{
         '--percentage': (charCount / maxCharacters) * 100,
       }}
-    />
+    >
+      <meter
+        class={`${
+          leftChars <= -10
+            ? 'explode'
+            : leftChars <= 0
+            ? 'danger'
+            : leftChars <= 20
+            ? 'warning'
+            : ''
+        }`}
+        value={charCount}
+        max={maxCharacters}
+      />
+      <span class="counter">{leftChars}</span>
+    </span>
   );
 }
 
@@ -1761,7 +1805,6 @@ function MediaAttachment({
       </div>
       {showModal && (
         <Modal
-          class="light"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowModal(false);

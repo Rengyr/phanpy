@@ -14,6 +14,7 @@ import { api } from '../utils/api';
 import enhanceContent from '../utils/enhance-content';
 import getHTMLText from '../utils/getHTMLText';
 import handleContentLinks from '../utils/handle-content-links';
+import { getLists } from '../utils/lists';
 import niceDateTime from '../utils/nice-date-time';
 import pmem from '../utils/pmem';
 import shortenNumber from '../utils/shorten-number';
@@ -340,10 +341,21 @@ function AccountInfo({
     [standalone, id, statusesCount],
   );
 
+  const onProfileUpdate = useCallback(
+    (newAccount) => {
+      if (newAccount.id === id) {
+        console.log('Updated account info', newAccount);
+        setInfo(newAccount);
+        states.accounts[`${newAccount.id}@${instance}`] = newAccount;
+      }
+    },
+    [id, instance],
+  );
+
   return (
     <div
       tabIndex="-1"
-      class={`account-container  ${uiState === 'loading' ? 'skeleton' : ''}`}
+      class={`account-container ${uiState === 'loading' ? 'skeleton' : ''}`}
       style={{
         '--header-color-1': headerCornerColors[0],
         '--header-color-2': headerCornerColors[1],
@@ -453,12 +465,15 @@ function AccountInfo({
                   e.target.classList.add('loaded');
                   try {
                     // Get color from four corners of image
-                    const canvas = document.createElement('canvas');
+                    const canvas = window.OffscreenCanvas
+                      ? new OffscreenCanvas(1, 1)
+                      : document.createElement('canvas');
                     const ctx = canvas.getContext('2d', {
                       willReadFrequently: true,
                     });
                     canvas.width = e.target.width;
                     canvas.height = e.target.height;
+                    ctx.imageSmoothingEnabled = false;
                     ctx.drawImage(e.target, 0, 0);
                     // const colors = [
                     //   ctx.getImageData(0, 0, 1, 1).data,
@@ -789,8 +804,10 @@ function AccountInfo({
               <RelatedActions
                 info={info}
                 instance={instance}
+                standalone={standalone}
                 authenticated={authenticated}
                 onRelationshipChange={onRelationshipChange}
+                onProfileUpdate={onProfileUpdate}
               />
             </footer>
           </>
@@ -805,8 +822,10 @@ const FAMILIAR_FOLLOWERS_LIMIT = 3;
 function RelatedActions({
   info,
   instance,
+  standalone,
   authenticated,
   onRelationshipChange = () => {},
+  onProfileUpdate = () => {},
 }) {
   if (!info) return null;
   const {
@@ -917,6 +936,8 @@ function RelatedActions({
   const [showTranslatedBio, setShowTranslatedBio] = useState(false);
   const [showAddRemoveLists, setShowAddRemoveLists] = useState(false);
   const [showPrivateNoteModal, setShowPrivateNoteModal] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [lists, setLists] = useState([]);
 
   return (
     <>
@@ -976,6 +997,22 @@ function RelatedActions({
                 <Icon icon="more" size="l" alt="More" />
               </button>
             }
+            onMenuChange={(e) => {
+              if (following && e.open) {
+                // Fetch lists that have this account
+                (async () => {
+                  try {
+                    const lists = await currentMasto.v1.accounts
+                      .$select(accountID.current)
+                      .lists.list();
+                    console.log('fetched account lists', lists);
+                    setLists(lists);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                })();
+              }
+            }}
           >
             {currentAuthenticated && !isSelf && (
               <>
@@ -1009,6 +1046,70 @@ function RelatedActions({
                     {privateNote ? 'Edit private note' : 'Add private note'}
                   </span>
                 </MenuItem>
+                {following && !!relationship && (
+                  <>
+                    <MenuItem
+                      onClick={() => {
+                        setRelationshipUIState('loading');
+                        (async () => {
+                          try {
+                            const rel = await currentMasto.v1.accounts
+                              .$select(accountID.current)
+                              .follow({
+                                notify: !notifying,
+                              });
+                            if (rel) setRelationship(rel);
+                            setRelationshipUIState('default');
+                            showToast(
+                              rel.notifying
+                                ? `Notifications enabled for @${username}'s posts.`
+                                : ` Notifications disabled for @${username}'s posts.`,
+                            );
+                          } catch (e) {
+                            alert(e);
+                            setRelationshipUIState('error');
+                          }
+                        })();
+                      }}
+                    >
+                      <Icon icon="notification" />
+                      <span>
+                        {notifying
+                          ? 'Disable notifications'
+                          : 'Enable notifications'}
+                      </span>
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        setRelationshipUIState('loading');
+                        (async () => {
+                          try {
+                            const rel = await currentMasto.v1.accounts
+                              .$select(accountID.current)
+                              .follow({
+                                reblogs: !showingReblogs,
+                              });
+                            if (rel) setRelationship(rel);
+                            setRelationshipUIState('default');
+                            showToast(
+                              rel.showingReblogs
+                                ? `Boosts from @${username} disabled.`
+                                : `Boosts from @${username} enabled.`,
+                            );
+                          } catch (e) {
+                            alert(e);
+                            setRelationshipUIState('error');
+                          }
+                        })();
+                      }}
+                    >
+                      <Icon icon="rocket" />
+                      <span>
+                        {showingReblogs ? 'Disable boosts' : 'Enable boosts'}
+                      </span>
+                    </MenuItem>
+                  </>
+                )}
                 {/* Add/remove from lists is only possible if following the account */}
                 {following && (
                   <MenuItem
@@ -1017,12 +1118,46 @@ function RelatedActions({
                     }}
                   >
                     <Icon icon="list" />
-                    <span>Add/remove from Lists</span>
+                    {lists.length ? (
+                      <>
+                        <small class="menu-grow">
+                          Add/Remove from Lists
+                          <br />
+                          <span class="more-insignificant">
+                            {lists.map((list) => list.title).join(', ')}
+                          </span>
+                        </small>
+                        <small class="more-insignificant">{lists.length}</small>
+                      </>
+                    ) : (
+                      <span>Add/Remove from Lists</span>
+                    )}
                   </MenuItem>
                 )}
                 <MenuDivider />
               </>
             )}
+            <MenuItem
+              onClick={() => {
+                const handle = `@${currentInfo?.acct || acct}`;
+                try {
+                  navigator.clipboard.writeText(handle);
+                  showToast('Handle copied');
+                } catch (e) {
+                  console.error(e);
+                  showToast('Unable to copy handle');
+                }
+              }}
+            >
+              <Icon icon="copy" />
+              <small>
+                Copy handle
+                <br />
+                <span class="more-insignificant">
+                  @{currentInfo?.acct || acct}
+                </span>
+              </small>
+            </MenuItem>
             <MenuItem href={url} target="_blank">
               <Icon icon="external" />
               <small class="menu-double-lines">{niceAccountURL(url)}</small>
@@ -1094,6 +1229,7 @@ function RelatedActions({
                   </MenuItem>
                 ) : (
                   <SubMenu
+                    menuClassName="menu-blur"
                     openTrigger="clickOnly"
                     direction="bottom"
                     overflow="auto"
@@ -1208,10 +1344,51 @@ function RelatedActions({
                     </>
                   )}
                 </MenuConfirm>
-                {/* <MenuItem>
-                <Icon icon="flag" />
-                <span>Report @{username}…</span>
-              </MenuItem> */}
+                <MenuItem
+                  className="danger"
+                  onClick={() => {
+                    states.showReportModal = {
+                      account: currentInfo || info,
+                    };
+                  }}
+                >
+                  <Icon icon="flag" />
+                  <span>Report @{username}…</span>
+                </MenuItem>
+              </>
+            )}
+            {currentAuthenticated && isSelf && standalone && (
+              <>
+                <MenuDivider />
+                <MenuItem
+                  onClick={() => {
+                    setShowEditProfile(true);
+                  }}
+                >
+                  <Icon icon="pencil" />
+                  <span>Edit profile</span>
+                </MenuItem>
+              </>
+            )}
+            {import.meta.env.DEV && currentAuthenticated && isSelf && (
+              <>
+                <MenuDivider />
+                <MenuItem
+                  onClick={async () => {
+                    const relationships =
+                      await currentMasto.v1.accounts.relationships.fetch({
+                        id: [accountID.current],
+                      });
+                    const { note } = relationships[0] || {};
+                    if (note) {
+                      alert(note);
+                      console.log(note);
+                    }
+                  }}
+                >
+                  <Icon icon="pencil" />
+                  <span>See note</span>
+                </MenuItem>
               </>
             )}
           </Menu2>
@@ -1294,7 +1471,6 @@ function RelatedActions({
       </div>
       {!!showTranslatedBio && (
         <Modal
-          class="light"
           onClose={() => {
             setShowTranslatedBio(false);
           }}
@@ -1308,7 +1484,6 @@ function RelatedActions({
       )}
       {!!showAddRemoveLists && (
         <Modal
-          class="light"
           onClose={() => {
             setShowAddRemoveLists(false);
           }}
@@ -1321,7 +1496,6 @@ function RelatedActions({
       )}
       {!!showPrivateNoteModal && (
         <Modal
-          class="light"
           onClose={() => {
             setShowPrivateNoteModal(false);
           }}
@@ -1334,6 +1508,22 @@ function RelatedActions({
               // onRelationshipChange({ relationship, currentID: accountID.current });
             }}
             onClose={() => setShowPrivateNoteModal(false)}
+          />
+        </Modal>
+      )}
+      {!!showEditProfile && (
+        <Modal
+          onClose={() => {
+            setShowEditProfile(false);
+          }}
+        >
+          <EditProfileSheet
+            onClose={({ state, account } = {}) => {
+              setShowEditProfile(false);
+              if (state === 'success' && account) {
+                onProfileUpdate(account);
+              }
+            }}
           />
         </Modal>
       )}
@@ -1414,13 +1604,12 @@ function AddRemoveListsSheet({ accountID, onClose }) {
     setUIState('loading');
     (async () => {
       try {
-        const lists = await masto.v1.lists.list();
-        lists.sort((a, b) => a.title.localeCompare(b.title));
+        const lists = await getLists();
+        setLists(lists);
         const listsContainingAccount = await masto.v1.accounts
           .$select(accountID)
           .lists.list();
         console.log({ lists, listsContainingAccount });
-        setLists(lists);
         setListsContainingAccount(listsContainingAccount);
         setUIState('default');
       } catch (e) {
@@ -1513,7 +1702,6 @@ function AddRemoveListsSheet({ accountID, onClose }) {
       </main>
       {showListAddEditModal && (
         <Modal
-          class="light"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowListAddEditModal(false);
@@ -1623,6 +1811,192 @@ function PrivateNoteSheet({
         </form>
       </main>
     </div>
+  );
+}
+
+function EditProfileSheet({ onClose = () => {} }) {
+  const { masto } = api();
+  const [uiState, setUIState] = useState('loading');
+  const [account, setAccount] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const acc = await masto.v1.accounts.verifyCredentials();
+        setAccount(acc);
+        setUIState('default');
+      } catch (e) {
+        console.error(e);
+        setUIState('error');
+      }
+    })();
+  }, []);
+
+  console.log('EditProfileSheet', account);
+  const { displayName, source } = account || {};
+  const { note, fields } = source || {};
+  const fieldsAttributesRef = useRef(null);
+
+  return (
+    <div class="sheet" id="edit-profile-container">
+      {!!onClose && (
+        <button type="button" class="sheet-close" onClick={onClose}>
+          <Icon icon="x" />
+        </button>
+      )}
+      <header>
+        <b>Edit profile</b>
+      </header>
+      <main>
+        {uiState === 'loading' ? (
+          <p class="ui-state">
+            <Loader abrupt />
+          </p>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              const displayName = formData.get('display_name');
+              const note = formData.get('note');
+              const fieldsAttributesFields =
+                fieldsAttributesRef.current.querySelectorAll(
+                  'input[name^="fields_attributes"]',
+                );
+              const fieldsAttributes = [];
+              fieldsAttributesFields.forEach((field) => {
+                const name = field.name;
+                const [_, index, key] =
+                  name.match(/fields_attributes\[(\d+)\]\[(.+)\]/) || [];
+                const value = field.value ? field.value.trim() : '';
+                if (index && key && value) {
+                  if (!fieldsAttributes[index]) fieldsAttributes[index] = {};
+                  fieldsAttributes[index][key] = value;
+                }
+              });
+              // Fill in the blanks
+              fieldsAttributes.forEach((field) => {
+                if (field.name && !field.value) {
+                  field.value = '';
+                }
+              });
+
+              (async () => {
+                try {
+                  const newAccount = await masto.v1.accounts.updateCredentials({
+                    displayName,
+                    note,
+                    fieldsAttributes,
+                  });
+                  console.log('updated account', newAccount);
+                  onClose?.({
+                    state: 'success',
+                    account: newAccount,
+                  });
+                } catch (e) {
+                  console.error(e);
+                  alert(e?.message || 'Unable to update profile.');
+                }
+              })();
+            }}
+          >
+            <p>
+              <label>
+                Name{' '}
+                <input
+                  type="text"
+                  name="display_name"
+                  defaultValue={displayName}
+                  maxLength={30}
+                  disabled={uiState === 'loading'}
+                />
+              </label>
+            </p>
+            <p>
+              <label>
+                Bio
+                <textarea
+                  defaultValue={note}
+                  name="note"
+                  maxLength={500}
+                  rows="5"
+                  disabled={uiState === 'loading'}
+                />
+              </label>
+            </p>
+            {/* Table for fields; name and values are in fields, min 4 rows */}
+            <p>Extra fields</p>
+            <table ref={fieldsAttributesRef}>
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Content</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: Math.max(4, fields.length) }).map(
+                  (_, i) => {
+                    const { name = '', value = '' } = fields[i] || {};
+                    return (
+                      <FieldsAttributesRow
+                        key={i}
+                        name={name}
+                        value={value}
+                        index={i}
+                        disabled={uiState === 'loading'}
+                      />
+                    );
+                  },
+                )}
+              </tbody>
+            </table>
+            <footer>
+              <button
+                type="button"
+                class="light"
+                disabled={uiState === 'loading'}
+                onClick={() => {
+                  onClose?.();
+                }}
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={uiState === 'loading'}>
+                Save
+              </button>
+            </footer>
+          </form>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function FieldsAttributesRow({ name, value, disabled, index: i }) {
+  const [hasValue, setHasValue] = useState(!!value);
+  return (
+    <tr>
+      <td>
+        <input
+          type="text"
+          name={`fields_attributes[${i}][name]`}
+          defaultValue={name}
+          disabled={disabled}
+          maxLength={255}
+          required={hasValue}
+        />
+      </td>
+      <td>
+        <input
+          type="text"
+          name={`fields_attributes[${i}][value]`}
+          defaultValue={value}
+          disabled={disabled}
+          maxLength={255}
+          onChange={(e) => setHasValue(!!e.currentTarget.value)}
+        />
+      </td>
+    </tr>
   );
 }
 
