@@ -1,5 +1,11 @@
 import { memo } from 'preact/compat';
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'preact/hooks';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { InView } from 'react-intersection-observer';
 import { useDebouncedCallback } from 'use-debounce';
@@ -9,6 +15,7 @@ import FilterContext from '../utils/filter-context';
 import { filteredItems, isFiltered } from '../utils/filters';
 import states, { statusKey } from '../utils/states';
 import statusPeek from '../utils/status-peek';
+import { isMediaFirstInstance } from '../utils/store-utils';
 import { groupBoosts, groupContext } from '../utils/timeline-utils';
 import useInterval from '../utils/useInterval';
 import usePageVisibility from '../utils/usePageVisibility';
@@ -52,13 +59,15 @@ function Timeline({
 }) {
   const snapStates = useSnapshot(states);
   const [items, setItems] = useState([]);
-  const [uiState, setUIState] = useState('default');
+  const [uiState, setUIState] = useState('start');
   const [showMore, setShowMore] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [visible, setVisible] = useState(true);
   const scrollableRef = useRef();
 
   console.debug('RENDER Timeline', id, refresh);
+
+  const mediaFirst = useMemo(() => isMediaFirstInstance(), []);
 
   const allowGrouping = view !== 'media';
   const loadItems = useDebouncedCallback(
@@ -208,8 +217,8 @@ function Timeline({
 
   const oRef = useHotkeys(['enter', 'o'], () => {
     // open active status
-    const activeItem = document.activeElement.closest(itemsSelector);
-    if (activeItem) {
+    const activeItem = document.activeElement;
+    if (activeItem?.matches(itemsSelector)) {
       activeItem.click();
     }
   });
@@ -363,7 +372,9 @@ function Timeline({
     <FilterContext.Provider value={filterContext}>
       <div
         id={`${id}-page`}
-        class="deck-container"
+        class={`deck-container ${
+          mediaFirst ? 'deck-container-media-first' : ''
+        }`}
         ref={(node) => {
           scrollableRef.current = node;
           jRef.current = node;
@@ -440,6 +451,7 @@ function Timeline({
                     view={view}
                     showFollowedTags={showFollowedTags}
                     showReplyParent={showReplyParent}
+                    mediaFirst={mediaFirst}
                   />
                 ))}
                 {showMore &&
@@ -451,14 +463,14 @@ function Timeline({
                           height: '20vh',
                         }}
                       >
-                        <Status skeleton />
+                        <Status skeleton mediaFirst={mediaFirst} />
                       </li>
                       <li
                         style={{
                           height: '25vh',
                         }}
                       >
-                        <Status skeleton />
+                        <Status skeleton mediaFirst={mediaFirst} />
                       </li>
                     </>
                   ))}
@@ -498,13 +510,14 @@ function Timeline({
                   />
                 ) : (
                   <li key={i}>
-                    <Status skeleton />
+                    <Status skeleton mediaFirst={mediaFirst} />
                   </li>
                 ),
               )}
             </ul>
           ) : (
-            uiState !== 'error' && <p class="ui-state">{emptyText}</p>
+            uiState !== 'error' &&
+            uiState !== 'start' && <p class="ui-state">{emptyText}</p>
           )}
           {uiState === 'error' && (
             <p class="ui-state">
@@ -532,6 +545,7 @@ const TimelineItem = memo(
     view,
     showFollowedTags,
     showReplyParent,
+    mediaFirst,
   }) => {
     console.debug('RENDER TimelineItem', status.id);
     const { id: statusID, reblog, items, type, _pinned } = status;
@@ -540,6 +554,7 @@ const TimelineItem = memo(
     const url = instance
       ? `/${instance}/s/${actualStatusID}`
       : `/s/${actualStatusID}`;
+
     if (items) {
       const fItems = filteredItems(items, filterContext);
       let title = '';
@@ -592,6 +607,7 @@ const TimelineItem = memo(
                           contentTextWeight
                           enableCommentHint
                           // allowFilters={allowFilters}
+                          mediaFirst={mediaFirst}
                         />
                       ) : (
                         <Status
@@ -601,6 +617,7 @@ const TimelineItem = memo(
                           contentTextWeight
                           enableCommentHint
                           // allowFilters={allowFilters}
+                          mediaFirst={mediaFirst}
                         />
                       )}
                     </Link>
@@ -637,7 +654,11 @@ const TimelineItem = memo(
           >
             <Link class="status-link timeline-item" to={url}>
               {showCompact ? (
-                <TimelineStatusCompact status={item} instance={instance} />
+                <TimelineStatusCompact
+                  status={item}
+                  instance={instance}
+                  filterContext={filterContext}
+                />
               ) : useItemID ? (
                 <Status
                   statusID={statusID}
@@ -696,6 +717,7 @@ const TimelineItem = memo(
               showFollowedTags={showFollowedTags}
               showReplyParent={showReplyParent}
               // allowFilters={allowFilters}
+              mediaFirst={mediaFirst}
             />
           ) : (
             <Status
@@ -705,6 +727,7 @@ const TimelineItem = memo(
               showFollowedTags={showFollowedTags}
               showReplyParent={showReplyParent}
               // allowFilters={allowFilters}
+              mediaFirst={mediaFirst}
             />
           )}
         </Link>
@@ -809,11 +832,12 @@ function StatusCarousel({ title, class: className, children }) {
   );
 }
 
-function TimelineStatusCompact({ status, instance }) {
+function TimelineStatusCompact({ status, instance, filterContext }) {
   const snapStates = useSnapshot(states);
   const { id, visibility, language } = status;
   const statusPeekText = statusPeek(status);
   const sKey = statusKey(id, instance);
+  const filterInfo = isFiltered(status.filtered, filterContext);
   return (
     <article
       class={`status compact-thread ${
@@ -839,13 +863,24 @@ function TimelineStatusCompact({ status, instance }) {
         lang={language}
         dir="auto"
       >
-        {statusPeekText}
-        {status.sensitive && status.spoilerText && (
+        {!!filterInfo ? (
+          <b
+            class="status-filtered-badge badge-meta horizontal"
+            title={filterInfo?.titlesStr || ''}
+          >
+            <span>Filtered</span>: <span>{filterInfo?.titlesStr || ''}</span>
+          </b>
+        ) : (
           <>
-            {' '}
-            <span class="spoiler-badge">
-              <Icon icon="eye-close" size="s" />
-            </span>
+            {statusPeekText}
+            {status.sensitive && status.spoilerText && (
+              <>
+                {' '}
+                <span class="spoiler-badge">
+                  <Icon icon="eye-close" size="s" />
+                </span>
+              </>
+            )}
           </>
         )}
       </div>

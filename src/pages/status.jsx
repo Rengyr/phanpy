@@ -12,10 +12,10 @@ import {
   useRef,
   useState,
 } from 'preact/hooks';
+import punycode from 'punycode';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { InView } from 'react-intersection-observer';
 import { matchPath, useSearchParams } from 'react-router-dom';
-import { useDebouncedCallback } from 'use-debounce';
 import { useSnapshot } from 'valtio';
 
 import Avatar from '../components/avatar';
@@ -122,7 +122,7 @@ function StatusPage(params) {
   }, [showMedia]);
 
   const mediaAttachments = mediaStatusID
-    ? mediaStatus?.mediaAttachments
+    ? snapStates.statuses[statusKey(mediaStatusID, instance)]?.mediaAttachments
     : heroStatus?.mediaAttachments;
 
   const handleMediaClose = useCallback(() => {
@@ -152,6 +152,18 @@ function StatusPage(params) {
     }, 100);
     return () => clearTimeout(timer);
   }, [showMediaOnly]);
+
+  useEffect(() => {
+    const $deckContainers = document.querySelectorAll('.deck-container');
+    $deckContainers.forEach(($deckContainer) => {
+      $deckContainer.setAttribute('inert', '');
+    });
+    return () => {
+      $deckContainers.forEach(($deckContainer) => {
+        $deckContainer.removeAttribute('inert');
+      });
+    };
+  }, []);
 
   return (
     <div class="deck-backdrop">
@@ -972,6 +984,18 @@ function StatusThread({ id, closeLink = '/', instance: propInstance }) {
     [statuses, limit, renderStatus],
   );
 
+  // If there's spoiler in hero status, auto-expand it
+  useEffect(() => {
+    let timer = setTimeout(() => {
+      if (!heroStatusRef.current) return;
+      const spoilerButton = heroStatusRef.current.querySelector(
+        '.spoiler-button:not(.spoiling), .spoiler-media-button:not(.spoiling)',
+      );
+      if (spoilerButton) spoilerButton.click();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [id]);
+
   return (
     <div
       tabIndex="-1"
@@ -1208,7 +1232,7 @@ function StatusThread({ id, closeLink = '/', instance: propInstance }) {
                   {postInstance ? (
                     <>
                       {' '}
-                      (<b>{postInstance}</b>)
+                      (<b>{punycode.toUnicode(postInstance)}</b>)
                     </>
                   ) : (
                     ''

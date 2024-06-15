@@ -16,6 +16,12 @@
 
   --blue-color: royalblue;
   --purple-color: blueviolet;
+  --purple-fg-color: color-mix(
+    in srgb-linear,
+    var(--purple-color) 60%,
+    var(--text-color) 40%
+  );
+  --purple-bg-color: color-mix(in srgb, var(--purple-color) 10%, transparent);
   --green-color: darkgreen;
   --orange-color: darkorange;
   --orange-light-bg-color: color-mix(
@@ -23,6 +29,12 @@
     var(--orange-color) 20%,
     transparent
   );
+  --orange-fg-color: color-mix(
+    in srgb-linear,
+    var(--orange-color) 60%,
+    var(--text-color) 40%
+  );
+  --orange-bg-color: color-mix(in srgb, var(--orange-color) 10%, transparent);
   --red-color: orangered;
   --red-text-color: color-mix(
     in srgb-linear,
@@ -96,6 +108,8 @@
 
   --timing-function: cubic-bezier(0.3, 0.5, 0, 1);
   --spring-timing-funtion: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+  --min-dimension: 88px;
 }
 
 @media (min-resolution: 2dppx) {
@@ -333,6 +347,7 @@ button[hidden] {
 }
 
 input[type='text'],
+input[type='search'],
 textarea,
 select {
   color: var(--text-color);
@@ -342,6 +357,7 @@ select {
   border-radius: 4px;
 }
 input[type='text']:focus,
+input[type='search']:focus,
 textarea:focus,
 select:focus {
   border-color: var(--outline-color);
@@ -357,7 +373,7 @@ textarea:disabled {
   background-color: var(--bg-faded-color);
 }
 
-:is(input[type='text'], textarea, select).block {
+:is(input[type='text'], input[type='search'], textarea, select).block {
   display: block;
   width: 100%;
 }
@@ -530,4 +546,10 @@ kbd {
 }
 .shazam-container-horizontal[hidden] {
   grid-template-columns: 0fr;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

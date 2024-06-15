@@ -40,6 +40,7 @@ const states = proxy({
   statusReply: {},
   accounts: {},
   routeNotification: null,
+  composerState: {},
   // Modals
   showCompose: false,
   showSettings: false,
@@ -68,6 +69,7 @@ const states = proxy({
     contentTranslationAutoInline: false,
     shortcutSettingsCloudImportExport: false,
     mediaAltGenerator: false,
+    composerGIFPicker: false,
     cloakMode: false,
   },
 });
@@ -102,6 +104,8 @@ export function initStates() {
     store.account.get('settings-shortcutSettingsCloudImportExport') ?? false;
   states.settings.mediaAltGenerator =
     store.account.get('settings-mediaAltGenerator') ?? false;
+  states.settings.composerGIFPicker =
+    store.account.get('settings-composerGIFPicker') ?? false;
   states.settings.cloakMode = store.account.get('settings-cloakMode') ?? false;
 }
 
@@ -145,6 +149,9 @@ subscribe(states, (changes) => {
     }
     if (path.join('.') === 'settings.mediaAltGenerator') {
       store.account.set('settings-mediaAltGenerator', !!value);
+    }
+    if (path.join('.') === 'settings.composerGIFPicker') {
+      store.account.set('settings-composerGIFPicker', !!value);
     }
     if (path?.[0] === 'shortcuts') {
       store.account.set('shortcuts', states.shortcuts);

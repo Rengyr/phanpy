@@ -33,7 +33,7 @@ import usePageVisibility from '../utils/usePageVisibility';
 import useScroll from '../utils/useScroll';
 import useTitle from '../utils/useTitle';
 
-const LIMIT = 30; // 30 is the maximum limit :(
+const LIMIT = 80;
 const emptySearchParams = new URLSearchParams();
 
 const scrollIntoViewOptions = {
@@ -73,6 +73,13 @@ function Notifications({ columnMode }) {
         excludeTypes: ['follow_request'],
       });
     }
+    if (/max_id=($|&)/i.test(notificationsIterator.current?.nextParams)) {
+      // Pixelfed returns next paginationed link with empty max_id
+      // I assume, it's done (end of list)
+      return {
+        done: true,
+      };
+    }
     const allNotifications = await notificationsIterator.current.next();
     const notifications = allNotifications.value;
 
@@ -84,6 +91,32 @@ function Notifications({ columnMode }) {
           skipThreading: true,
         });
       });
+
+      // TEST: Slot in a fake notification to test 'severed_relationships'
+      // notifications.unshift({
+      //   id: '123123',
+      //   type: 'severed_relationships',
+      //   createdAt: '2024-03-22T19:20:08.316Z',
+      //   event: {
+      //     type: 'account_suspension',
+      //     targetName: 'mastodon.dev',
+      //     followersCount: 0,
+      //     followingCount: 0,
+      //   },
+      // });
+
+      // TEST: Slot in a fake notification to test 'moderation_warning'
+      // notifications.unshift({
+      //   id: '123123',
+      //   type: 'moderation_warning',
+      //   createdAt: new Date().toISOString(),
+      //   moderation_warning: {
+      //     id: '1231234',
+      //     action: 'mark_statuses_as_sensitive',
+      //   },
+      // });
+
+      // console.log({ notifications });
 
       if (counter >= LIMIT) {
         moreToLoad = true;
@@ -252,7 +285,6 @@ function Notifications({ columnMode }) {
 
   const lastHiddenTime = useRef();
   usePageVisibility((visible) => {
-    let unsub;
     if (visible) {
       const timeDiff = Date.now() - lastHiddenTime.current;
       if (!lastHiddenTime.current || timeDiff > 1000 * 3) {
@@ -263,20 +295,21 @@ function Notifications({ columnMode }) {
       } else {
         lastHiddenTime.current = Date.now();
       }
-      unsub = subscribeKey(states, 'notificationsShowNew', (v) => {
-        if (uiState === 'loading') {
-          return;
-        }
-        if (v) {
-          loadUpdates();
-        }
-        setShowNew(v);
-      });
     }
-    return () => {
-      unsub?.();
-    };
   });
+  const firstLoad = useRef(true);
+  useEffect(() => {
+    let unsub = subscribeKey(states, 'notificationsShowNew', (v) => {
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        return;
+      }
+      if (uiState === 'loading') return;
+      if (v) loadUpdates();
+      setShowNew(v);
+    });
+    return () => unsub?.();
+  }, []);
 
   const todayDate = new Date();
   const yesterdayDate = new Date(todayDate - 24 * 60 * 60 * 1000);
@@ -423,7 +456,7 @@ function Notifications({ columnMode }) {
               {supportsFilteredNotifications && (
                 <button
                   type="button"
-                  class="button plain"
+                  class="button plain4"
                   onClick={() => {
                     setShowNotificationsSettings(true);
                   }}
@@ -537,66 +570,72 @@ function Notifications({ columnMode }) {
         )}
         {supportsFilteredNotifications &&
           notificationsPolicy?.summary?.pendingRequestsCount > 0 && (
-            <div class="filtered-notifications">
-              <details
-                onToggle={async (e) => {
-                  const { open } = e.target;
-                  if (open) {
-                    const requests = await fetchNotificationsRequest();
-                    setNotificationsRequests(requests);
-                    console.log({ open, requests });
-                  }
-                }}
-              >
-                <summary>
-                  Filtered notifications from{' '}
-                  {notificationsPolicy.summary.pendingRequestsCount} people
-                </summary>
-                {!notificationsRequests ? (
-                  <p class="ui-state">
-                    <Loader abrupt />
-                  </p>
-                ) : (
-                  notificationsRequests?.length > 0 && (
-                    <ul>
-                      {notificationsRequests.map((request) => (
-                        <li key={request.id}>
-                          <div class="request-notifcations">
-                            {!request.lastStatus?.id && (
-                              <AccountBlock
-                                useAvatarStatic
-                                showStats
-                                account={request.account}
-                              />
-                            )}
-                            {request.lastStatus?.id && (
-                              <div class="last-post">
-                                <Link
-                                  class="status-link"
-                                  to={`/${instance}/s/${request.lastStatus.id}`}
-                                >
-                                  <Status
-                                    status={request.lastStatus}
-                                    size="s"
-                                    readOnly
+            <div class="shazam-container">
+              <div class="shazam-container-inner">
+                <div class="filtered-notifications">
+                  <details
+                    onToggle={async (e) => {
+                      const { open } = e.target;
+                      if (open) {
+                        const requests = await fetchNotificationsRequest();
+                        setNotificationsRequests(requests);
+                        console.log({ open, requests });
+                      }
+                    }}
+                  >
+                    <summary>
+                      Filtered notifications from{' '}
+                      {notificationsPolicy.summary.pendingRequestsCount} people
+                    </summary>
+                    {!notificationsRequests ? (
+                      <p class="ui-state">
+                        <Loader abrupt />
+                      </p>
+                    ) : (
+                      notificationsRequests?.length > 0 && (
+                        <ul>
+                          {notificationsRequests.map((request) => (
+                            <li key={request.id}>
+                              <div class="request-notifcations">
+                                {!request.lastStatus?.id && (
+                                  <AccountBlock
+                                    useAvatarStatic
+                                    showStats
+                                    account={request.account}
                                   />
-                                </Link>
+                                )}
+                                {request.lastStatus?.id && (
+                                  <div class="last-post">
+                                    <Link
+                                      class="status-link"
+                                      to={`/${instance}/s/${request.lastStatus.id}`}
+                                    >
+                                      <Status
+                                        status={request.lastStatus}
+                                        size="s"
+                                        readOnly
+                                      />
+                                    </Link>
+                                  </div>
+                                )}
+                                <NotificationRequestModalButton
+                                  request={request}
+                                />
                               </div>
-                            )}
-                            <NotificationRequestModalButton request={request} />
-                          </div>
-                          <NotificationRequestButtons
-                            request={request}
-                            onChange={() => {
-                              loadNotifications(true);
-                            }}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )
-                )}
-              </details>
+                              <NotificationRequestButtons
+                                request={request}
+                                onChange={() => {
+                                  loadNotifications(true);
+                                }}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      )
+                    )}
+                  </details>
+                </div>
+              </div>
             </div>
           )}
         <div id="mentions-option">
@@ -612,7 +651,7 @@ function Notifications({ columnMode }) {
           </label>
         </div>
         <h2 class="timeline-header">Today</h2>
-        {showTodayEmpty && !!snapStates.notifications.length && (
+        {showTodayEmpty && (
           <p class="ui-state insignificant">
             {uiState === 'default' ? "You're all caught up." : <>&hellip;</>}
           </p>

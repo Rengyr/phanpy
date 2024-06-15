@@ -1,6 +1,6 @@
 import './account-info.css';
 
-import { Menu, MenuDivider, MenuItem, SubMenu } from '@szhsin/react-menu';
+import { MenuDivider, MenuItem } from '@szhsin/react-menu';
 import {
   useCallback,
   useEffect,
@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'preact/hooks';
+import punycode from 'punycode';
 
 import { api } from '../utils/api';
 import enhanceContent from '../utils/enhance-content';
@@ -18,10 +19,12 @@ import { getLists } from '../utils/lists';
 import niceDateTime from '../utils/nice-date-time';
 import pmem from '../utils/pmem';
 import shortenNumber from '../utils/shorten-number';
+import showCompose from '../utils/show-compose';
 import showToast from '../utils/show-toast';
 import states, { hideAllModals } from '../utils/states';
 import store from '../utils/store';
-import { updateAccount } from '../utils/store-utils';
+import { getCurrentAccountID, updateAccount } from '../utils/store-utils';
+import supports from '../utils/supports';
 
 import AccountBlock from './account-block';
 import Avatar from './avatar';
@@ -32,7 +35,9 @@ import ListAddEdit from './list-add-edit';
 import Loader from './loader';
 import Menu2 from './menu2';
 import MenuConfirm from './menu-confirm';
+import MenuLink from './menu-link';
 import Modal from './modal';
+import SubMenu2 from './submenu2';
 import TranslationBlock from './translation-block';
 
 const MUTE_DURATIONS = [
@@ -182,6 +187,7 @@ function AccountInfo({
     memorial,
     moved,
     roles,
+    hideCollections,
   } = info || {};
   let headerIsAvatar = false;
   let { header, headerStatic } = info || {};
@@ -195,10 +201,7 @@ function AccountInfo({
     }
   }
 
-  const isSelf = useMemo(
-    () => id === store.session.get('currentAccount'),
-    [id],
-  );
+  const isSelf = useMemo(() => id === getCurrentAccountID(), [id]);
 
   useEffect(() => {
     const infoHasEssentials = !!(
@@ -228,7 +231,7 @@ function AccountInfo({
 
   const accountInstance = useMemo(() => {
     if (!url) return null;
-    const domain = new URL(url).hostname;
+    const domain = punycode.toUnicode(new URL(url).hostname);
     return domain;
   }, [url]);
 
@@ -251,12 +254,13 @@ function AccountInfo({
     // On first load, fetch familiar followers, merge to top of results' `value`
     // Remove dups on every fetch
     if (firstLoad) {
-      const familiarFollowers = await masto.v1.accounts.familiarFollowers.fetch(
-        {
+      let familiarFollowers = [];
+      try {
+        familiarFollowers = await masto.v1.accounts.familiarFollowers.fetch({
           id: [id],
-        },
-      );
-      familiarFollowersCache.current = familiarFollowers[0].accounts;
+        });
+      } catch (e) {}
+      familiarFollowersCache.current = familiarFollowers?.[0]?.accounts || [];
       newValue = [
         ...familiarFollowersCache.current,
         ...value.filter(
@@ -541,13 +545,64 @@ function AccountInfo({
               />
             )}
             <header>
-              <AccountBlock
-                account={info}
-                instance={instance}
-                avatarSize="xxxl"
-                external={standalone}
-                internal={!standalone}
-              />
+              {standalone ? (
+                <Menu2
+                  shift={
+                    window.matchMedia('(min-width: calc(40em))').matches
+                      ? 114
+                      : 64
+                  }
+                  menuButton={
+                    <div>
+                      <AccountBlock
+                        account={info}
+                        instance={instance}
+                        avatarSize="xxxl"
+                        onClick={() => {}}
+                      />
+                    </div>
+                  }
+                >
+                  <div class="szh-menu__header">
+                    <AccountHandleInfo acct={acct} instance={instance} />
+                  </div>
+                  <MenuItem
+                    onClick={() => {
+                      const handle = `@${acct}`;
+                      try {
+                        navigator.clipboard.writeText(handle);
+                        showToast('Handle copied');
+                      } catch (e) {
+                        console.error(e);
+                        showToast('Unable to copy handle');
+                      }
+                    }}
+                  >
+                    <Icon icon="link" />
+                    <span>Copy handle</span>
+                  </MenuItem>
+                  <MenuItem href={url} target="_blank">
+                    <Icon icon="external" />
+                    <span>Go to original profile page</span>
+                  </MenuItem>
+                  <MenuDivider />
+                  <MenuLink href={info.avatar} target="_blank">
+                    <Icon icon="user" />
+                    <span>View profile image</span>
+                  </MenuLink>
+                  <MenuLink href={info.header} target="_blank">
+                    <Icon icon="media" />
+                    <span>View profile header</span>
+                  </MenuLink>
+                </Menu2>
+              ) : (
+                <AccountBlock
+                  account={info}
+                  instance={instance}
+                  avatarSize="xxxl"
+                  internal
+                />
+              )}
             </header>
             <div class="faux-header-bg" aria-hidden="true" />
             <main>
@@ -617,12 +672,16 @@ function AccountInfo({
                       // states.showAccount = false;
                       setTimeout(() => {
                         states.showGenericAccounts = {
+                          id: 'followers',
                           heading: 'Followers',
                           fetchAccounts: fetchFollowers,
                           instance,
                           excludeRelationshipAttrs: isSelf
                             ? ['followedBy']
                             : [],
+                          blankCopy: hideCollections
+                            ? 'This user has chosen to not make this information available.'
+                            : undefined,
                         };
                       }, 0);
                     }}
@@ -658,6 +717,9 @@ function AccountInfo({
                           fetchAccounts: fetchFollowing,
                           instance,
                           excludeRelationshipAttrs: isSelf ? ['following'] : [],
+                          blankCopy: hideCollections
+                            ? 'This user has chosen to not make this information available.'
+                            : undefined,
                         };
                       }, 0);
                     }}
@@ -767,38 +829,40 @@ function AccountInfo({
                   </div>
                 </LinkOrDiv>
               )}
-              <div class="account-metadata-box">
-                <div
-                  class="shazam-container no-animation"
-                  hidden={!!postingStats}
-                >
-                  <div class="shazam-container-inner">
-                    <button
-                      type="button"
-                      class="posting-stats-button"
-                      disabled={postingStatsUIState === 'loading'}
-                      onClick={() => {
-                        renderPostingStats();
-                      }}
-                    >
-                      <div
-                        class={`posting-stats-bar posting-stats-icon ${
-                          postingStatsUIState === 'loading' ? 'loading' : ''
-                        }`}
-                        style={{
-                          '--originals-percentage': '33%',
-                          '--replies-percentage': '66%',
+              {!moved && (
+                <div class="account-metadata-box">
+                  <div
+                    class="shazam-container no-animation"
+                    hidden={!!postingStats}
+                  >
+                    <div class="shazam-container-inner">
+                      <button
+                        type="button"
+                        class="posting-stats-button"
+                        disabled={postingStatsUIState === 'loading'}
+                        onClick={() => {
+                          renderPostingStats();
                         }}
-                      />
-                      View post stats{' '}
-                      {/* <Loader
+                      >
+                        <div
+                          class={`posting-stats-bar posting-stats-icon ${
+                            postingStatsUIState === 'loading' ? 'loading' : ''
+                          }`}
+                          style={{
+                            '--originals-percentage': '33%',
+                            '--replies-percentage': '66%',
+                          }}
+                        />
+                        View post stats{' '}
+                        {/* <Loader
                         abrupt
                         hidden={postingStatsUIState !== 'loading'}
                       /> */}
-                    </button>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </main>
             <footer>
               <RelatedActions
@@ -862,7 +926,7 @@ function RelatedActions({
 
   useEffect(() => {
     if (info) {
-      const currentAccount = store.session.get('currentAccount');
+      const currentAccount = getCurrentAccountID();
       let currentID;
       (async () => {
         if (sameInstance && authenticated) {
@@ -897,7 +961,7 @@ function RelatedActions({
 
         accountID.current = currentID;
 
-        if (moved) return;
+        // if (moved) return;
 
         setRelationshipUIState('loading');
 
@@ -1018,11 +1082,11 @@ function RelatedActions({
               <>
                 <MenuItem
                   onClick={() => {
-                    states.showCompose = {
+                    showCompose({
                       draftStatus: {
                         status: `@${currentInfo?.acct || acct} `,
                       },
-                    };
+                    });
                   }}
                 >
                   <Icon icon="at" />
@@ -1036,16 +1100,18 @@ function RelatedActions({
                   <Icon icon="translate" />
                   <span>Translate bio</span>
                 </MenuItem>
-                <MenuItem
-                  onClick={() => {
-                    setShowPrivateNoteModal(true);
-                  }}
-                >
-                  <Icon icon="pencil" />
-                  <span>
-                    {privateNote ? 'Edit private note' : 'Add private note'}
-                  </span>
-                </MenuItem>
+                {supports('@mastodon/profile-private-note') && (
+                  <MenuItem
+                    onClick={() => {
+                      setShowPrivateNoteModal(true);
+                    }}
+                  >
+                    <Icon icon="pencil" />
+                    <span>
+                      {privateNote ? 'Edit private note' : 'Add private note'}
+                    </span>
+                  </MenuItem>
+                )}
                 {following && !!relationship && (
                   <>
                     <MenuItem
@@ -1228,7 +1294,7 @@ function RelatedActions({
                     <span>Unmute @{username}</span>
                   </MenuItem>
                 ) : (
-                  <SubMenu
+                  <SubMenu2
                     menuClassName="menu-blur"
                     openTrigger="clickOnly"
                     direction="bottom"
@@ -1282,7 +1348,44 @@ function RelatedActions({
                         </MenuItem>
                       ))}
                     </div>
-                  </SubMenu>
+                  </SubMenu2>
+                )}
+                {followedBy && (
+                  <MenuConfirm
+                    subMenu
+                    menuItemClassName="danger"
+                    confirmLabel={
+                      <>
+                        <Icon icon="user-x" />
+                        <span>Remove @{username} from followers?</span>
+                      </>
+                    }
+                    onClick={() => {
+                      setRelationshipUIState('loading');
+                      (async () => {
+                        try {
+                          const newRelationship = await currentMasto.v1.accounts
+                            .$select(currentInfo?.id || id)
+                            .removeFromFollowers();
+                          console.log(
+                            'removing from followers',
+                            newRelationship,
+                          );
+                          setRelationship(newRelationship);
+                          setRelationshipUIState('default');
+                          showToast(`@${username} removed from followers`);
+                          states.reloadGenericAccounts.id = 'followers';
+                          states.reloadGenericAccounts.counter++;
+                        } catch (e) {
+                          console.error(e);
+                          setRelationshipUIState('error');
+                        }
+                      })();
+                    }}
+                  >
+                    <Icon icon="user-x" />
+                    <span>Remove follower…</span>
+                  </MenuConfirm>
                 )}
                 <MenuConfirm
                   subMenu
@@ -1357,19 +1460,22 @@ function RelatedActions({
                 </MenuItem>
               </>
             )}
-            {currentAuthenticated && isSelf && standalone && (
-              <>
-                <MenuDivider />
-                <MenuItem
-                  onClick={() => {
-                    setShowEditProfile(true);
-                  }}
-                >
-                  <Icon icon="pencil" />
-                  <span>Edit profile</span>
-                </MenuItem>
-              </>
-            )}
+            {currentAuthenticated &&
+              isSelf &&
+              standalone &&
+              supports('@mastodon/profile-edit') && (
+                <>
+                  <MenuDivider />
+                  <MenuItem
+                    onClick={() => {
+                      setShowEditProfile(true);
+                    }}
+                  >
+                    <Icon icon="pencil" />
+                    <span>Edit profile</span>
+                  </MenuItem>
+                </>
+              )}
             {import.meta.env.DEV && currentAuthenticated && isSelf && (
               <>
                 <MenuDivider />
@@ -1395,7 +1501,7 @@ function RelatedActions({
           {!relationship && relationshipUIState === 'loading' && (
             <Loader abrupt />
           )}
-          {!!relationship && (
+          {!!relationship && !moved && (
             <MenuConfirm
               confirm={following || requested}
               confirmLabel={
@@ -1554,7 +1660,7 @@ function niceAccountURL(url) {
   const path = pathname.replace(/\/$/, '').replace(/^\//, '');
   return (
     <>
-      <span class="more-insignificant">{host}/</span>
+      <span class="more-insignificant">{punycode.toUnicode(host)}/</span>
       <wbr />
       <span>{path}</span>
     </>
@@ -1997,6 +2103,29 @@ function FieldsAttributesRow({ name, value, disabled, index: i }) {
         />
       </td>
     </tr>
+  );
+}
+
+function AccountHandleInfo({ acct, instance }) {
+  // acct = username or username@server
+  let [username, server] = acct.split('@');
+  if (!server) server = instance;
+  return (
+    <div class="handle-info">
+      <span class="handle-handle">
+        <b class="handle-username">{username}</b>
+        <span class="handle-at">@</span>
+        <b class="handle-server">{server}</b>
+      </span>
+      <div class="handle-legend">
+        <span class="ib">
+          <span class="handle-legend-icon username" /> username
+        </span>{' '}
+        <span class="ib">
+          <span class="handle-legend-icon server" /> server domain name
+        </span>
+      </div>
+    </div>
   );
 }
 

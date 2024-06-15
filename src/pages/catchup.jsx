@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
 } from 'preact/hooks';
+import punycode from 'punycode';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useSearchParams } from 'react-router-dom';
 import { uid } from 'uid/single';
@@ -39,7 +40,8 @@ import showToast from '../utils/show-toast';
 import states, { statusKey } from '../utils/states';
 import statusPeek from '../utils/status-peek';
 import store from '../utils/store';
-import { getCurrentAccountNS } from '../utils/store-utils';
+import { getCurrentAccountID, getCurrentAccountNS } from '../utils/store-utils';
+import supports from '../utils/supports';
 import { assignFollowedTags } from '../utils/timeline-utils';
 import useTitle from '../utils/useTitle';
 
@@ -111,9 +113,11 @@ function Catchup() {
   const [showTopLinks, setShowTopLinks] = useState(false);
 
   const currentAccount = useMemo(() => {
-    return store.session.get('currentAccount');
+    return getCurrentAccountID();
   }, []);
   const isSelf = (accountID) => accountID === currentAccount;
+
+  const supportsPixelfed = supports('@pixelfed/home-include-reblogs');
 
   async function fetchHome({ maxCreatedAt }) {
     const maxCreatedAtDate = maxCreatedAt ? new Date(maxCreatedAt) : null;
@@ -122,6 +126,13 @@ function Catchup() {
     const homeIterator = masto.v1.timelines.home.list({ limit: 40 });
     mainloop: while (true) {
       try {
+        if (supportsPixelfed && homeIterator.nextParams) {
+          if (typeof homeIterator.nextParams === 'string') {
+            homeIterator.nextParams += '&include_reblogs=true';
+          } else {
+            homeIterator.nextParams.include_reblogs = true;
+          }
+        }
         const results = await homeIterator.next();
         const { value } = results;
         if (value?.length) {
@@ -191,6 +202,7 @@ function Catchup() {
 
   const [posts, setPosts] = useState([]);
   const catchupRangeRef = useRef();
+  const catchupLastRef = useRef();
   const NS = useMemo(() => getCurrentAccountNS(), []);
   const handleCatchupClick = useCallback(async ({ duration } = {}) => {
     const now = Date.now();
@@ -925,7 +937,15 @@ function Catchup() {
                   type="button"
                   onClick={() => {
                     if (range < RANGES[RANGES.length - 1].value) {
-                      const duration = range * 60 * 60 * 1000;
+                      let duration;
+                      if (
+                        range === RANGES[RANGES.length - 1].value &&
+                        catchupLastRef.current?.checked
+                      ) {
+                        duration = Date.now() - lastCatchupEndAt;
+                      } else {
+                        duration = range * 60 * 60 * 1000;
+                      }
                       handleCatchupClick({ duration });
                     } else {
                       handleCatchupClick();
@@ -935,11 +955,25 @@ function Catchup() {
                   Catch up
                 </button>
               </div>
-              {lastCatchupRange && range > lastCatchupRange && (
+              {lastCatchupRange && range > lastCatchupRange ? (
                 <p class="catchup-info">
                   <Icon icon="info" /> Overlaps with your last catch-up
                 </p>
-              )}
+              ) : range === RANGES[RANGES.length - 1].value &&
+                lastCatchupEndAt ? (
+                <p class="catchup-info">
+                  <label>
+                    <input
+                      type="checkbox"
+                      switch
+                      checked
+                      ref={catchupLastRef}
+                    />{' '}
+                    Until the last catch-up (
+                    {dtf.format(new Date(lastCatchupEndAt))})
+                  </label>
+                </p>
+              ) : null}
               <p class="insignificant">
                 <small>
                   Note: your instance might only show a maximum of 800 posts in
@@ -1076,9 +1110,11 @@ function Catchup() {
                         height,
                         publishedAt,
                       } = card;
-                      const domain = new URL(url).hostname
-                        .replace(/^www\./, '')
-                        .replace(/\/$/, '');
+                      const domain = punycode.toUnicode(
+                        new URL(url).hostname
+                          .replace(/^www\./, '')
+                          .replace(/\/$/, ''),
+                      );
                       let accentColor;
                       if (blurhash) {
                         const averageColor = getBlurHashAverageColor(blurhash);
@@ -1263,7 +1299,7 @@ function Catchup() {
                           authors[author].avatarStatic || authors[author].avatar
                         }
                         size="xxl"
-                        alt={`${authors[author].displayName} (@${authors[author].username})`}
+                        alt={`${authors[author].displayName} (@${authors[author].acct})`}
                       />{' '}
                       <span class="count">{authorCounts[author]}</span>
                       <span class="username">{authors[author].username}</span>
@@ -1651,63 +1687,70 @@ function PostPeek({ post, filterInfo }) {
   } = post;
   const isThread =
     (inReplyToId && inReplyToAccountId === account.id) || !!_thread;
-  const showMedia = !spoilerText && !sensitive;
+
+  const readingExpandSpoilers = useMemo(() => {
+    const prefs = store.account.get('preferences') || {};
+    return !!prefs['reading:expand:spoilers'];
+  }, []);
+  // const readingExpandSpoilers = true;
+  const showMedia = readingExpandSpoilers || (!spoilerText && !sensitive);
   const postText = content ? statusPeek(post) : '';
+
+  const showPostContent = !spoilerText || readingExpandSpoilers;
 
   return (
     <div class="post-peek" title={!spoilerText ? postText : ''}>
       <span class="post-peek-content">
+        {isThread && !showPostContent && (
+          <>
+            <span class="post-peek-tag post-peek-thread">Thread</span>{' '}
+          </>
+        )}
         {!!filterInfo ? (
-          <>
-            {isThread && (
-              <>
-                <span class="post-peek-tag post-peek-thread">Thread</span>{' '}
-              </>
-            )}
-            <span class="post-peek-filtered">
-              Filtered{filterInfo?.titlesStr ? `: ${filterInfo.titlesStr}` : ''}
-            </span>
-          </>
-        ) : !!spoilerText ? (
-          <>
-            {isThread && (
-              <>
-                <span class="post-peek-tag post-peek-thread">Thread</span>{' '}
-              </>
-            )}
-            <span class="post-peek-spoiler">
-              <Icon icon="eye-close" /> {spoilerText}
-            </span>
-          </>
+          <span class="post-peek-filtered">
+            Filtered{filterInfo?.titlesStr ? `: ${filterInfo.titlesStr}` : ''}
+          </span>
         ) : (
-          <div class="post-peek-html">
-            {isThread && (
-              <>
-                <span class="post-peek-tag post-peek-thread">Thread</span>{' '}
-              </>
+          <>
+            {!!spoilerText && (
+              <span class="post-peek-spoiler">
+                <Icon
+                  icon={`${readingExpandSpoilers ? 'eye-open' : 'eye-close'}`}
+                />{' '}
+                {spoilerText}
+              </span>
             )}
-            {!!content && (
-              <div
-                dangerouslySetInnerHTML={{
-                  __html: emojifyText(content, emojis),
-                }}
-              />
+            {showPostContent && (
+              <div class="post-peek-html">
+                {isThread && (
+                  <>
+                    <span class="post-peek-tag post-peek-thread">Thread</span>{' '}
+                  </>
+                )}
+                {!!content && (
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: emojifyText(content, emojis),
+                    }}
+                  />
+                )}
+                {!!poll?.options?.length &&
+                  poll.options.map((o) => (
+                    <div>
+                      {poll.multiple ? '▪️' : '•'} {o.title}
+                    </div>
+                  ))}
+                {!content &&
+                  mediaAttachments?.length === 1 &&
+                  mediaAttachments[0].description && (
+                    <>
+                      <span class="post-peek-tag post-peek-alt">ALT</span>{' '}
+                      <div>{mediaAttachments[0].description}</div>
+                    </>
+                  )}
+              </div>
             )}
-            {!!poll?.options?.length &&
-              poll.options.map((o) => (
-                <div>
-                  {poll.multiple ? '▪️' : '•'} {o.title}
-                </div>
-              ))}
-            {!content &&
-              mediaAttachments?.length === 1 &&
-              mediaAttachments[0].description && (
-                <>
-                  <span class="post-peek-tag post-peek-alt">ALT</span>{' '}
-                  <div>{mediaAttachments[0].description}</div>
-                </>
-              )}
-          </div>
+          </>
         )}
       </span>
       {!filterInfo && (
