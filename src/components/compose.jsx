@@ -1188,7 +1188,7 @@ function Compose({
                 ? t`Post your reply`
                 : editStatus
                 ? t`Edit your post`
-                : t`What are you doing?`
+                : t`Bark here`
             }
             required={mediaAttachments?.length === 0}
             disabled={uiState === 'loading'}
@@ -1471,7 +1471,7 @@ function Compose({
                 : editStatus
                 ? t`Update`
                 : t({
-                    message: 'Post',
+                    message: 'Yip',
                     context: 'Submit button in composer',
                   })}
             </button>
@@ -1733,7 +1733,7 @@ const Textarea = forwardRef((props, ref) => {
                 <li role="option" data-value="${encodeHTML(shortcode)}">
                 <img src="${encodeHTML(
                   url,
-                )}" width="16" height="16" alt="" loading="lazy" /> 
+                )}" width="16" height="16" alt="" loading="lazy" />
                 ${encodeHTML(shortcode)}
               </li>`;
           });
@@ -3241,8 +3241,8 @@ const CustomEmojiButton = memo(({ emoji, onClick, showCode }) => {
           className="shortcode-emoji"
           src={emoji.url || emoji.staticUrl}
           alt={emoji.shortcode}
-          width="24"
-          height="24"
+          width="32"
+          height="32"
           loading="lazy"
           decoding="async"
         />

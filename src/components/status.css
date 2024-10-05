@@ -1217,7 +1217,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  vertical-align: middle;
+  vertical-align: text-bottom;
 }
 :is(.status, .media-post) .media {
   cursor: pointer;
@@ -2147,16 +2147,21 @@ a.card:is(:hover, :focus):visited {
 }
 .status.large .actions {
   padding-top: 4px;
-  padding-bottom: 16px;
+  padding-bottom: 8px;
   margin-inline-start: calc(-50px - 16px);
   color: var(--text-insignificant-color);
   border-top: var(--hairline-width) solid var(--outline-color);
-  margin-top: 8px;
+  margin-top: 16px;
 }
 .status.large .actions.disabled {
   pointer-events: none;
   opacity: 0.5;
 }
+
+.timeline-item-carousel .actions {
+  margin-top: 14px;
+}
+
 .status .action.has-count {
   flex: 1;
 }

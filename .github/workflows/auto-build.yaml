@@ -1,0 +1,53 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+
+name: Create release
+
+on:
+  push:
+    branches: [ "production-custom" ]
+  pull_request:
+    branches: [ "production-custom" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Setup Environment (PR)  
+      if: ${{ github.event_name == 'pull_request' }}  
+      shell: bash  
+      run: echo "LAST_COMMIT_SHA=`echo ${{ github.event.pull_request.head.sha }} | cut -c1-8`" >> ${GITHUB_ENV}  
+    - name: Setup Environment (Push)  
+      if: ${{ github.event_name == 'push' }}  
+      shell: bash  
+      run: echo "LAST_COMMIT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" >> ${GITHUB_ENV}
+    - name: Get current date
+      id: date
+      run: echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> ${GITHUB_ENV}
+    - uses: actions/checkout@v3
+    - name: Build project
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build
+    - name: Zip build
+      run: zip -r dist.zip "./dist"
+    - uses: ClementTsang/delete-tag-and-release@v0.3.1
+      with:
+        delete_release: true # default: false
+        tag_name: "auto-build" # tag name to delete
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create release
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+          gh release create "auto-build" "dist.zip" \
+              --repo="$GITHUB_REPOSITORY" \
+              --target="${{ github.sha }}" \
+              --latest \
+              --title="auto-build: ${{ env.LAST_COMMIT_SHA }}, ${{ env.CURRENT_DATE }}"

@@ -2162,14 +2162,14 @@ function Status({
               <Icon icon="comment2" alt={t`Replies`} /> {repliesCount}
             </div>
           )}
-          {isSizeLarge && (
+          {(
             <>
               <div class="extra-meta">
                 {_deleted ? (
                   <span class="status-deleted-tag">
                     <Trans>Deleted</Trans>
                   </span>
-                ) : (
+                ) : isSizeLarge && (
                   <>
                     {/* <Icon
                       icon={visibilityIconsMap[visibility]}
@@ -2289,8 +2289,10 @@ function Status({
                   onClick={confirmBoostStatus}
                   confirmLabel={
                     <>
-                      <Icon icon="rocket" />
-                      <span>{reblogged ? t`Unboost` : t`Boost`}</span>
+                      <a href="javascript:void(0)">
+                        <Icon icon="rocket" />
+                        <span>{reblogged ? t`Unboost` : t`Boost`}</span>
+                      </a>
                     </>
                   }
                   menuExtras={
@@ -2319,7 +2321,7 @@ function Status({
                     )
                   }
                 >
-                  <div class="action has-count">
+                  <div class="action has-count"  onClick={(e) => {e.preventDefault();}}>
                     <StatusButton
                       checked={reblogged}
                       title={[t`Boost`, t`Unboost`]}
@@ -2355,6 +2357,7 @@ function Status({
                     />
                   </div>
                 )}
+                {isSizeLarge && (
                 <Menu2
                   portal={{
                     target:
@@ -2378,6 +2381,7 @@ function Status({
                 >
                   {StatusMenuItems}
                 </Menu2>
+                )}
               </div>
             </>
           )}

@@ -100,6 +100,7 @@ function Public({ local, columnMode, ...props }) {
       useItemID
       headerStart={<></>}
       boostsCarousel={snapStates.settings.boostsCarousel}
+      chronologicalCarousel={snapStates.settings.chronologicalCarousel}
       // allowFilters
       filterContext="public"
       headerEnd={

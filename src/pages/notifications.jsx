@@ -63,7 +63,7 @@ export function mastoFetchNotifications(opts = {}) {
     memSupportsGroupedNotifications()
   ) {
     // https://github.com/mastodon/mastodon/pull/29889
-    return masto.v2_alpha.notifications.list({
+    return masto.v2.notifications.list({
       limit: NOTIFICATIONS_GROUPED_LIMIT,
       ...opts,
     });
@@ -125,6 +125,7 @@ function Notifications({ columnMode }) {
 
   const notificationsIterator = useRef();
   async function fetchNotifications(firstLoad) {
+    let moreToLoad = false;
     if (firstLoad || !notificationsIterator.current) {
       // Reset iterator
       notificationsIterator.current = mastoFetchNotifications({
@@ -142,7 +143,9 @@ function Notifications({ columnMode }) {
     const notifications = massageNotifications2(allNotifications.value);
 
     if (notifications?.length) {
+      let counter = 0;
       notifications.forEach((notification) => {
+        counter += 1;
         saveStatus(notification.status, instance, {
           skipThreading: true,
         });
@@ -174,6 +177,10 @@ function Notifications({ columnMode }) {
 
       // console.log({ notifications });
 
+      if (counter >= LIMIT) {
+        moreToLoad = true;
+      }
+
       const groupedNotifications = getGroupedNotifications(notifications);
 
       if (firstLoad) {
@@ -195,7 +202,7 @@ function Notifications({ columnMode }) {
 
     states.notificationsShowNew = false;
     states.notificationsLastFetchTime = Date.now();
-    return allNotifications;
+    return moreToLoad;
   }
 
   async function fetchFollowRequests() {
@@ -284,10 +291,8 @@ function Notifications({ columnMode }) {
             loadNotificationsPolicy();
           }
         }
-
-        const { done } = await fetchNotificationsPromise;
-        setShowMore(!done);
-
+        const moreToLoad = await fetchNotificationsPromise;
+        setShowMore(moreToLoad);
         setUIState('default');
       } catch (e) {
         console.error(e);
