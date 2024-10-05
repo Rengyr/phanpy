@@ -45,7 +45,7 @@ export default memo(function BackgroundService({ isLoggedIn }) {
               timeline: 'notifications',
             });
             lastReadId = markers?.notifications?.lastReadId;
-          } catch (e) {}
+          } catch (e) { }
           if (lastReadId) {
             states.notificationsShowNew = notifications[0].id !== lastReadId;
           } else {

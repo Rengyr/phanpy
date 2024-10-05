@@ -992,16 +992,16 @@ function StatusThread({ id, closeLink = '/', instance: propInstance }) {
   );
 
   // If there's spoiler in hero status, auto-expand it
-  useEffect(() => {
-    let timer = setTimeout(() => {
-      if (!heroStatusRef.current) return;
-      const spoilerButton = heroStatusRef.current.querySelector(
-        '.spoiler-button:not(.spoiling), .spoiler-media-button:not(.spoiling)',
-      );
-      if (spoilerButton) spoilerButton.click();
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [id]);
+  // useEffect(() => {
+  //   let timer = setTimeout(() => {
+  //     if (!heroStatusRef.current) return;
+  //     const spoilerButton = heroStatusRef.current.querySelector(
+  //       '.spoiler-button:not(.spoiling), .spoiler-media-button:not(.spoiling)',
+  //     );
+  //     if (spoilerButton) spoilerButton.click();
+  //   }, 1000);
+  //   return () => clearTimeout(timer);
+  // }, [id]);
 
   return (
     <div
