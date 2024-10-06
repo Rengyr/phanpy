@@ -667,8 +667,8 @@ msgid "Reply"
 msgstr ""
 
 #: src/components/compose.jsx:1472
-msgid "Update"
-msgstr ""
+msgid "Uwupdate"
+msgstr "Uwupdate"
 
 #: src/components/compose.jsx:1473
 msgctxt "Submit button in composer"

@@ -1469,7 +1469,7 @@ function Compose({
               {replyToStatus
                 ? t`Reply`
                 : editStatus
-                ? t`Update`
+                ? t`Uwupdate`
                 : t({
                     message: 'Yip',
                     context: 'Submit button in composer',
