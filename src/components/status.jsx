@@ -2073,7 +2073,7 @@ function Status({
                   )}
                 {!!mediaAttachments.length &&
                   (mediaAttachments.length > 1 &&
-                  (isSizeLarge || (withinContext && size === 'm')) ? (
+                  (1 === 2 && (isSizeLarge || (withinContext && size === 'm'))) ? ( // Disabled in fork
                     <div class="media-large-container">
                       {mediaAttachments.map((media, i) => (
                         <div key={media.id} class={`media-container media-eq1`}>
