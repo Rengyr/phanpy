@@ -1020,13 +1020,13 @@
     .media-gt2
   ) {
   /* 50px = avatar size */
-  margin-inline-start: calc(-1 * ((50px / 2)));
+  /* margin-inline-start: calc(-1 * ((50px / 2))); */
   /*
     outer padding = 16px
     gap = 12px
     so... 16 - 12 = 4
   */
-  margin-inline-end: -4px;
+  /* margin-inline-end: -4px; */
 }
 .status.large :is(.media-container, .media-container.media-gt2) {
   height: auto;
