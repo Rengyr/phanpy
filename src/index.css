@@ -66,6 +66,7 @@
   --button-plain-bg-hover-color: rgba(128, 128, 128, 0.1);
   --reblog-color: var(--purple-color);
   --reblog-faded-color: #892be220;
+  --carousel-scrollbar-color: rgb(0,0,0);
   --group-color: var(--green-color);
   --group-faded-color: #00640020;
   --reply-to-color: var(--orange-color);
@@ -152,6 +153,7 @@
       var(--bg-color) 20%
     );
     --reblog-faded-color: #b190f141;
+    --carousel-scrollbar-color: rgb(255,255,255);
     --reply-to-text-color: var(--reply-to-color);
     --reply-to-faded-color: #ffa60017;
     --divider-color: rgba(255, 255, 255, 0.1);

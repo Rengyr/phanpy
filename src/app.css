@@ -948,8 +948,8 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   inset: 0;
   pointer-events: none;
   background-image: radial-gradient(
-      ellipse 50% 32px at bottom center,
-      var(--carousel-faded-color),
+      ellipse 50% 25px at bottom center,
+      color-mix(in srgb, var(--carousel-faded-color) 80%, transparent),
       transparent
     ),
     linear-gradient(to top, var(--bg-color) 8px, transparent 64px);
@@ -985,6 +985,7 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   min-height: 160px;
   max-height: 65vh;
   max-height: 65dvh;
+  scrollbar-color: var(--carousel-scrollbar-color) rgba(0,0,0,0);
 }
 .status-carousel > ul > li {
   scroll-snap-align: center;
