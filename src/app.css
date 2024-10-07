@@ -45,7 +45,6 @@ a.mention span {
 }
 a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   color: var(--link-visited-color);
-  text-decoration-color: var(--link-visited-color);
 }
 
 .deck-container {
