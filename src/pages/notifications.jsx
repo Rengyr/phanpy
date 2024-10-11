@@ -183,10 +183,6 @@ function Notifications({ columnMode }) {
 
       // console.log({ notifications });
 
-      if (counter >= LIMIT) {
-        moreToLoad = true;
-      }
-
       const groupedNotifications = getGroupedNotifications(notifications);
 
       if (firstLoad) {
@@ -208,7 +204,7 @@ function Notifications({ columnMode }) {
 
     states.notificationsShowNew = false;
     states.notificationsLastFetchTime = Date.now();
-    return moreToLoad;
+    return allNotifications;
   }
 
   async function fetchFollowRequests() {
