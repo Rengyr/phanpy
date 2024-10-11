@@ -46,6 +46,7 @@ function Timeline({
   errorText,
   useItemID, // use statusID instead of status object, assuming it's already in states
   boostsCarousel,
+  chronologicalCarousel,
   fetchItems = () => {},
   checkForUpdates = () => {},
   checkForUpdatesInterval = 15_000, // 15 seconds
@@ -102,6 +103,13 @@ function Timeline({
             if (allowGrouping) {
               if (boostsCarousel) {
                 value = groupBoosts(value);
+              if (chronologicalCarousel) {
+                value.sort((a, b) => {
+                  const aDate = new Date(a.createdAt);
+                  const bDate = new Date(b.createdAt);
+                  return bDate - aDate;
+                });
+              }
               }
               value = groupContext(value, instance);
             }

@@ -14,7 +14,7 @@
   --monospace-font: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono',
     Menlo, Courier, monospace;
 
-  --blue-color: royalblue;
+  --blue-color: rgb(231, 68, 255);
   --purple-color: blueviolet;
   --purple-fg-color: color-mix(
     in srgb-linear,
@@ -50,22 +50,23 @@
   --text-insignificant-color: #1c1e2199;
   --link-color: var(--blue-color);
   --link-bg-color: #4169e122;
-  --link-light-color: #4169e199;
-  --link-faded-color: #4169e155;
+  --link-light-color: rgb(124, 36, 138);
+  --link-faded-color: rgb(124, 36, 138);
   --link-bg-hover-color: #f0f2f599;
-  --link-visited-color: mediumslateblue;
+  --link-visited-color: rgb(158, 47, 175);
   --link-text-color: color-mix(
     in lch,
-    var(--link-color) 60%,
-    var(--text-color) 40%
+    var(--link-color) 90%,
+    var(--text-color) 10%
   );
   --focus-ring-color: var(--link-color);
   --button-bg-color: var(--blue-color);
-  --button-bg-blur-color: #4169e1aa;
+  --button-bg-blur-color: rgb(124, 36, 138);
   --button-text-color: white;
   --button-plain-bg-hover-color: rgba(128, 128, 128, 0.1);
   --reblog-color: var(--purple-color);
   --reblog-faded-color: #892be220;
+  --carousel-scrollbar-color: rgb(0,0,0);
   --group-color: var(--green-color);
   --group-faded-color: #00640020;
   --reply-to-color: var(--orange-color);
@@ -132,8 +133,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --blue-color: CornflowerBlue;
-    --purple-color: #b190f1;
+    --blue-color: rgb(231, 68, 255);
+    --purple-color: rgb(231, 68, 255);
     --green-color: lightgreen;
     --orange-color: orange;
     --bg-color: #242526;
@@ -142,20 +143,17 @@
     --bg-faded-blur-color: #18191a99;
     --text-color: #f0f2f5;
     --text-insignificant-color: #f0f2f599;
-    --link-light-color: #6494ed99;
-    --link-faded-color: #6494ed88;
+    --link-light-color: rgb(124, 36, 138);
+    --link-faded-color: rgb(124, 36, 138);
     --link-bg-hover-color: #34353799;
-    --link-visited-color: color-mix(
-      in lch,
-      mediumslateblue 70%,
-      var(--text-color) 30%
-    );
+    --link-visited-color: rgb(158, 47, 175);
     --button-bg-color: color-mix(
       in srgb,
       var(--blue-color) 80%,
       var(--bg-color) 20%
     );
     --reblog-faded-color: #b190f141;
+    --carousel-scrollbar-color: rgb(255,255,255);
     --reply-to-text-color: var(--reply-to-color);
     --reply-to-faded-color: #ffa60017;
     --divider-color: rgba(255, 255, 255, 0.1);

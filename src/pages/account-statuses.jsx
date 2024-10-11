@@ -508,6 +508,7 @@ function AccountStatuses() {
       useItemID
       view={media || mediaFirst ? 'media' : undefined}
       boostsCarousel={snapStates.settings.boostsCarousel}
+      chronologicalCarousel={snapStates.settings.chronologicalCarousel}
       timelineStart={TimelineStart}
       refresh={[
         excludeReplies,

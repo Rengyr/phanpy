@@ -140,6 +140,7 @@ function Following({ title, path, id, ...props }) {
       checkForUpdates={checkForUpdates}
       useItemID
       boostsCarousel={snapStates.settings.boostsCarousel}
+      chronologicalCarousel={snapStates.settings.chronologicalCarousel}
       {...props}
       // allowFilters
       filterContext="home"

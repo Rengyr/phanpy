@@ -201,12 +201,12 @@ function Media({
   const mediaStyles =
     width && height
       ? {
-          '--width': `${width}px`,
-          '--height': `${height}px`,
+          // '--width': `${width}px`,
+          // '--height': `${height}px`,
           // Calculate '--aspectWidth' based on aspect ratio calculated from '--width' and '--height', max height has to be 160px
-          '--aspectWidth': `${
-            (width / height) * Math.max(maxHeight, maxAspectHeight)
-          }px`,
+          // '--aspectWidth': `${
+          //   (width / height) * Math.max(maxHeight, maxAspectHeight)
+          // }px`,
           aspectRatio: `${width} / ${height}`,
           ...averageColorStyle,
         }
@@ -296,7 +296,8 @@ function Media({
                 ref={mediaRef}
                 src={mediaURL}
                 alt={description}
-                width={width}
+                title={description}
+              width={width}
                 height={height}
                 data-orientation={orientation}
                 loading="eager"
@@ -322,8 +323,10 @@ function Media({
             <>
               <img
                 src={mediaURL}
-                alt={showInlineDesc ? '' : description}
-                width={width}
+                srcset={(original?.width !== undefined ? (url + " " + original?.width + "w") : "") + (original?.width !== undefined && small?.width !== undefined ? ", " : "") + (small?.width !== undefined ? (previewUrl + " " + small.width + "w") : "")}
+            alt={showInlineDesc ? '' : description}
+                title={showInlineDesc ? '' : description}
+            width={width}
                 height={height}
                 data-orientation={orientation}
                 loading="lazy"
@@ -390,7 +393,11 @@ function Media({
                   const { src } = e.target;
                   if (src === mediaURL && mediaURL !== remoteMediaURL) {
                     e.target.src = remoteMediaURL;
-                  }
+                    srcset = [];
+                if (original?.width !== undefined) srcset.push(remoteUrl + " " + original.width + "w");
+                if (small?.width !== undefined) srcset.push(previewRemoteUrl + " " + small.width + "w");
+                e.target.srcset = srcset.join(", ");
+              }
                 }}
               />
               {!showInlineDesc && (
@@ -564,6 +571,7 @@ function Media({
                 <img
                   src={previewUrl}
                   alt={showInlineDesc ? '' : description}
+                  title={showInlineDesc ? '' : description}
                   width={width}
                   height={height}
                   data-orientation={orientation}
@@ -645,7 +653,8 @@ function Media({
             <img
               src={previewUrl}
               alt={showInlineDesc ? '' : description}
-              width={width}
+              title={showInlineDesc ? '' : description}
+            width={width}
               height={height}
               data-orientation={orientation}
               loading="lazy"

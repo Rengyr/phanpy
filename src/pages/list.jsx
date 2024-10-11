@@ -111,6 +111,7 @@ function List(props) {
         checkForUpdates={checkForUpdates}
         useItemID
         boostsCarousel={snapStates.settings.boostsCarousel}
+        chronologicalCarousel={snapStates.settings.chronologicalCarousel}
         // allowFilters
         filterContext="home"
         showReplyParent

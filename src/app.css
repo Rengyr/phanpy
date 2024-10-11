@@ -45,7 +45,6 @@ a.mention span {
 }
 a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   color: var(--link-visited-color);
-  text-decoration-color: var(--link-visited-color);
 }
 
 .deck-container {
@@ -419,9 +418,6 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
 }
 .timeline.contextual > li.descendant {
   position: relative;
-}
-.timeline.contextual > li.descendant {
-  padding-bottom: 1em;
 }
 .timeline.contextual
   > li.descendant:not(.thread)
@@ -959,8 +955,8 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   inset: 0;
   pointer-events: none;
   background-image: radial-gradient(
-      ellipse 50% 32px at bottom center,
-      var(--carousel-faded-color),
+      ellipse 50% 25px at bottom center,
+      color-mix(in srgb, var(--carousel-faded-color) 80%, transparent),
       transparent
     ),
     linear-gradient(to top, var(--bg-color) 8px, transparent 64px);
@@ -996,6 +992,7 @@ a[href^='http'][rel*='nofollow']:visited:not(:has(div)) {
   min-height: 160px;
   max-height: 65vh;
   max-height: 65dvh;
+  scrollbar-color: var(--carousel-scrollbar-color) rgba(0,0,0,0);
 }
 .status-carousel > ul > li {
   scroll-snap-align: center;
@@ -2913,8 +2910,9 @@ ul.link-list li a .icon {
     padding: 32px;
   } */
   li.timeline-item-carousel {
-    width: 95vw;
-    max-width: calc(320px * 3.3);
+    width: calc(320px * 3.3);
+    max-width: 70vw;
+    max-width: calc(70vw - mod(70vw, 2px));
     transform: translateX(calc(-50% + var(--main-width) / 2));
     &:dir(rtl) {
       transform: translateX(calc(50% - var(--main-width) / 2));
