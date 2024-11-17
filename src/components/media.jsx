@@ -74,6 +74,7 @@ function Media({
   showCaption,
   allowLongerCaption,
   altIndex,
+  checkAspectRatio = true,
   onClick = () => {},
 }) {
   let {
@@ -357,7 +358,7 @@ function Media({
                   }
 
                   // Check natural aspect ratio vs display aspect ratio
-                  if ($media) {
+                  if (checkAspectRatio && $media) {
                     const {
                       clientWidth,
                       clientHeight,
