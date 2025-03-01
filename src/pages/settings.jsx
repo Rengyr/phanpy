@@ -1,6 +1,6 @@
 import './settings.css';
 
-import { Plural, t, Trans } from '@lingui/macro';
+import { Plural, Trans, useLingui } from '@lingui/react/macro';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useSnapshot } from 'valtio';
 
@@ -36,6 +36,7 @@ const {
 } = import.meta.env;
 
 function Settings({ onClose }) {
+  const { t } = useLingui();
   const snapStates = useSnapshot(states);
   const currentTheme = store.local.get('theme') || 'auto';
   const themeFormRef = useRef();
@@ -249,7 +250,7 @@ function Settings({ onClose }) {
                   <a
                     href="https://crowdin.com/project/phanpy"
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noopener"
                   >
                     <Trans>Volunteer translations</Trans>
                   </a>
@@ -323,7 +324,7 @@ function Settings({ onClose }) {
                   <a
                     href={`https://${instance}/`}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noopener"
                   >
                     Go to your instance ({instance}) for more settings.
                   </a>
@@ -494,7 +495,7 @@ function Settings({ onClose }) {
                       <a
                         href="https://github.com/cheeaun/lingva-api"
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="noopener"
                       >
                         Lingva API
                       </a>{' '}
@@ -502,7 +503,7 @@ function Settings({ onClose }) {
                       <a
                         href="https://github.com/thedaviddelta/lingva-translate"
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="noopener"
                       >
                         Lingva Translate
                       </a>
@@ -556,7 +557,7 @@ function Settings({ onClose }) {
                       <a
                         href="https://developers.giphy.com/"
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="noopener"
                       >
                         GIPHY
                       </a>
@@ -596,7 +597,7 @@ function Settings({ onClose }) {
                       <a
                         href="https://github.com/cheeaun/img-alt-api"
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="noopener"
                       >
                         img-alt-api
                       </a>
@@ -739,7 +740,7 @@ function Settings({ onClose }) {
               <a
                 href="https://hachyderm.io/@phanpy"
                 // target="_blank"
-                rel="noopener noreferrer"
+                rel="noopener"
                 onClick={(e) => {
                   e.preventDefault();
                   states.showAccount = 'phanpy@hachyderm.io';
@@ -752,7 +753,7 @@ function Settings({ onClose }) {
                 <a
                   href="https://github.com/cheeaun/phanpy"
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener"
                 >
                   Built
                 </a>{' '}
@@ -760,7 +761,7 @@ function Settings({ onClose }) {
                 <a
                   href="https://mastodon.social/@cheeaun"
                   // target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener"
                   onClick={(e) => {
                     e.preventDefault();
                     states.showAccount = 'cheeaun@mastodon.social';
@@ -775,7 +776,7 @@ function Settings({ onClose }) {
             <a
               href="https://github.com/sponsors/cheeaun"
               target="_blank"
-              rel="noopener noreferrer"
+              rel="noopener"
             >
               <Trans>Sponsor</Trans>
             </a>{' '}
@@ -783,7 +784,7 @@ function Settings({ onClose }) {
             <a
               href="https://www.buymeacoffee.com/cheeaun"
               target="_blank"
-              rel="noopener noreferrer"
+              rel="noopener"
             >
               <Trans>Donate</Trans>
             </a>{' '}
@@ -791,16 +792,12 @@ function Settings({ onClose }) {
             <a
               href="https://patreon.com/cheeaun"
               target="_blank"
-              rel="noopener noreferrer"
+              rel="noopener"
             >
               Patreon
             </a>{' '}
             &middot;{' '}
-            <a
-              href={PRIVACY_POLICY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener">
               <Trans>Privacy Policy</Trans>
             </a>
           </p>
@@ -843,7 +840,7 @@ function Settings({ onClose }) {
                     <a
                       href={`https://github.com/cheeaun/phanpy/commit/${__COMMIT_HASH__}`}
                       target="_blank"
-                      rel="noopener noreferrer"
+                      rel="noopener"
                     >
                       <RelativeTime datetime={new Date(__BUILD_TIME__)} />
                     </a>
@@ -969,6 +966,7 @@ async function clearCaches() {
 }
 
 function PushNotificationsSection({ onClose }) {
+  const { t } = useLingui();
   if (!isPushSupported()) return null;
 
   const { instance } = api();
@@ -994,10 +992,10 @@ function PushNotificationsSection({ onClose }) {
           const policyEl = elements.namedItem('policy');
           if (policyEl) policyEl.value = policy;
           // alerts is {}, iterate it
-          Object.keys(alerts).forEach((alert) => {
+          Object.entries(alerts).forEach(([alert, value]) => {
             const el = elements.namedItem(alert);
             if (el?.type === 'checkbox') {
-              el.checked = true;
+              el.checked = !!value;
             }
           });
         }

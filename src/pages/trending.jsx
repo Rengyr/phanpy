@@ -1,7 +1,7 @@
 import '../components/links-bar.css';
 import './trending.css';
 
-import { t, Trans } from '@lingui/macro';
+import { Trans, useLingui } from '@lingui/react/macro';
 import { MenuItem } from '@szhsin/react-menu';
 import { getBlurHashAverageColor } from 'fast-blurhash';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -62,6 +62,7 @@ function fetchLinkList(masto, params) {
 }
 
 function Trending({ columnMode, ...props }) {
+  const { t } = useLingui();
   const snapStates = useSnapshot(states);
   const params = columnMode ? {} : useParams();
   const { masto, instance } = api({
@@ -273,7 +274,7 @@ function Trending({ columnMode, ...props }) {
                     ref={currentLink === url ? currentLinkRef : null}
                     href={url}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noopener"
                     class={`link-block ${
                       hasCurrentLink
                         ? currentLink === url
@@ -352,7 +353,7 @@ function Trending({ columnMode, ...props }) {
                                     <a
                                       href={authorUrl}
                                       target="_blank"
-                                      rel="noopener noreferrer"
+                                      rel="noopener"
                                     >
                                       {authorName}
                                     </a>

@@ -97,7 +97,7 @@ Everything is designed and engineered following my taste and vision. This is a p
 
 ## Development
 
-Prerequisites: Node.js 18+
+Prerequisites: Node.js 20+
 
 - `npm install` - Install dependencies
 - `npm run dev` - Start development server and `messages:extract` (`clean` + ``watch`) in parallel
@@ -233,6 +233,11 @@ Available variables:
 - `PHANPY_DEFAULT_LANG` (optional):
   - Default language is English (`en`) if not specified.
   - Fallback language after multiple detection methods (`lang` query parameter, `lang` key in `localStorage` and `navigator.language`)
+- `PHANPY_REFERRER_POLICY` (optional, default: `origin`):
+  - Referrer policy for the site. See [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy).
+  - This is applied with the `<meta>` tag on the client-side.
+  - The policy can also be set with `Referrer-Policy` header configured on the server-side (not this variable).
+  - Note that since Phanpy uses hash-based URLs, the referrer does not include the hash part.
 - `PHANPY_LINGVA_INSTANCES` (optional, space-separated list, default: `lingva.phanpy.social [...hard-coded list of fallback instances]`):
   - Specify a space-separated list of instances. First will be used as default before falling back to the subsequent instances. If there's only 1 instance, means no fallback.
   - May specify a self-hosted Lingva instance, powered by either [lingva-translate](https://github.com/thedaviddelta/lingva-translate) or [lingva-api](https://github.com/cheeaun/lingva-api)
@@ -273,6 +278,7 @@ These are self-hosted by other wonderful folks.
 - [phanpy.tilde.zone](https://phanpy.tilde.zone) by [@ben@tilde.zone](https://tilde.zone/@ben)
 - [phanpy.vmst.io](https://phanpy.vmst.io/) by [@vmstan@vmst.io](https://vmst.io/@vmstan)
 - [social.qrk.one](https://social.qrk.one) by [@kev@fosstodon.org](https://fosstodon.org/@kev)
+- [phanpy.linuxusers.in](https://phanpy.linuxusers.in) by [@dharmik@linuxusers.in](https://linuxusers.in/dharmik)
 
 > Note: Add yours by creating a pull request.
 
@@ -304,6 +310,7 @@ Costs involved in running and developing this web app:
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15460040/medium/1cfcfe5f5511b783b5d9f2b968bad819.png" alt="" width="16" height="16" /> cbasje (Dutch)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15525631/medium/51293156034d0236f1a1020c10f7d539_default.png" alt="" width="16" height="16" /> cbo92 (French)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15910131/medium/67fab7eeab5551853450e76e2ef19e59.jpeg" alt="" width="16" height="16" /> CDN (Chinese Simplified)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/12513809/medium/b56324e44ae26da6db7793bc467a70e2.png" alt="" width="16" height="16" /> codl (French)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16556801/medium/ed5e501ca1f3cc6525d2da28db646346.jpeg" alt="" width="16" height="16" /> dannypsnl (Chinese Traditional)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/3711/medium/c97239bb54623a50eb43cc6b801bb156.jpg" alt="" width="16" height="16" /> databio (Catalan)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16533843/medium/ac7af8776858a992d992cf6702d1aaae.jpg" alt="" width="16" height="16" /> Dizro (Italian)
@@ -311,26 +318,31 @@ Costs involved in running and developing this web app:
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/12618120/medium/ccb11bd042bbf4c7189033f7af2dbd32_default.png" alt="" width="16" height="16" /> drydenwu (Chinese Traditional)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/13557465/medium/8feebf3677fa80c01e8c54c4fbe097e0_default.png" alt="" width="16" height="16" /> elissarc (French)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16528627/medium/9036f6eced0257f4e1ea4c5bd499de2d_default.png" alt="" width="16" height="16" /> ElPamplina (Spanish)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/15592209/medium/28f10212dce24e74c25e27ea6d0e9126.png" alt="" width="16" height="16" /> filipesmedeiros (Portuguese)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/14277386/medium/29b30d2c73a214000e3941c9978f49e4_default.png" alt="" width="16" height="16" /> Fitik (Esperanto, Hebrew)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/14444512/medium/99d0e7a3076deccbdfe0aa0b0612308c.jpeg" alt="" width="16" height="16" /> Freeesia (Japanese)
-- <img src="https://crowdin-static.downloads.crowdin.com/avatar/12617257/medium/a201650da44fed28890b0e0d8477a663.jpg" alt="" width="16" height="16" /> ghose (Galician)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/12617257/medium/7a0122f352a94d95be10780bb83f63ef.jpg" alt="" width="16" height="16" /> ghose (Galician)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15248754/medium/0dac6334ea0f4e8d4194a605c0a5594a.jpeg" alt="" width="16" height="16" /> hongminhee (Korean)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16529833/medium/2122d0c5d61c00786ab6d5e5672d4098.png" alt="" width="16" height="16" /> Hugoglyph (Esperanto, Spanish)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/13454728/medium/1f78b7124b3c962bc4ae55e8d701fc91_default.png" alt="" width="16" height="16" /> isard (Catalan)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16646485/medium/5d76c44212a4048a815ab437fb170856_default.png" alt="" width="16" height="16" /> kaliuwu (Polish)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16532403/medium/4cefb19623bcc44d7cdb9e25aebf5250.jpeg" alt="" width="16" height="16" /> karlafej (Czech)
-- <img src="https://crowdin-static.downloads.crowdin.com/avatar/15791971/medium/88bdda3090339f16f6083390d32bb434_default.png" alt="" width="16" height="16" /> katullo11 (Italian)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/15791971/medium/1790a2101ceb13f61816b8fe6fbe6d90.jpeg" alt="" width="16" height="16" /> katullo11 (Italian)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/14677260/medium/e53420d200961f48602324e18c091bdc.png" alt="" width="16" height="16" /> Kytta (German)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16529521/medium/ae6add93a901b0fefa2d9b1077920d73.png" alt="" width="16" height="16" /> llun (Thai)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16291756/medium/c008af10bc117fa9c9dcb70f2b291ee6.jpg" alt="" width="16" height="16" /> lucasofchirst (Occitan, Portuguese, Portuguese, Brazilian)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16640089/medium/4b7d8d275d7a7bff564adde51e09b473_default.png" alt="" width="16" height="16" /> LukeHong (Chinese Traditional)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/12822971/medium/4ecbe6d1248536084902925beb0b63e4.png" alt="" width="16" height="16" /> Mannivu (Italian)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16537713/medium/825f0bf1a14fc545a76891a52839d86e_default.png" alt="" width="16" height="16" /> marcin.kozinski (Polish)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/16812323/medium/72bffbdf4a331845f23400eafa0b3d48.jpeg" alt="" width="16" height="16" /> martinmodrak (Czech)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/13521465/medium/76cb9aa6b753ce900a70478bff7fcea0.png" alt="" width="16" height="16" /> mkljczkk (Polish)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/12882812/medium/77744d8db46e9a3e09030e1a02b7a572.jpeg" alt="" width="16" height="16" /> mojosoeun (Korean)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/13613969/medium/c7834ddc0ada84a79671697a944bb274.png" alt="" width="16" height="16" /> moreal (Korean)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/14158861/medium/ba1ff31dc5743b067ea6685f735229a5_default.png" alt="" width="16" height="16" /> MrWillCom (Chinese Simplified)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15652333/medium/7f36f289f9e2fe41d89ad534a1047f0e.png" alt="" width="16" height="16" /> nclm (French)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/15000639/medium/ebbf0bb7d5027a1903d11b7f5f34f65b.jpeg" alt="" width="16" height="16" /> nycterent (Lithuanian)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16539461/medium/2f41b9f0b802c1d200a6ab62167a7229_default.png" alt="" width="16" height="16" /> pazpi (Italian)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/13954917/medium/56a2cba267eb1b5d122bf62ddc0dd732_default.png" alt="" width="16" height="16" /> PPNplus (Thai)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15106977/medium/54bf93b19af8bbfdee579ea51685bafa.jpeg" alt="" width="16" height="16" /> punkrockgirl (Basque)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16536247/medium/f010c8e718a36229733a8b58f6bad2a4_default.png" alt="" width="16" height="16" /> radecos (French)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16538917/medium/092ec03f56f9dd1cbce94379fa4d4d38.png" alt="" width="16" height="16" /> Razem (Czech)
@@ -343,9 +355,11 @@ Costs involved in running and developing this web app:
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/14565190/medium/79100599131b7776e9803e4b696915a3_default.png" alt="" width="16" height="16" /> Sky_NiniKo (French)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/13143526/medium/30871da23d51d7e41bb02f3c92d7f104.png" alt="" width="16" height="16" /> Steffo99 (Italian)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16532441/medium/1a47e8d80c95636e02d2260f6e233ca5.png" alt="" width="16" height="16" /> Su5hicz (Czech)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/12579488/medium/699394d1acfe986a31532007534c7656.jpg" alt="" width="16" height="16" /> svetlemodry (Czech)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16530049/medium/683f3581620c6b4a5c753b416ed695a7.jpeg" alt="" width="16" height="16" /> tferrermo (Spanish)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/15752199/medium/7e9efd828c4691368d063b19d19eb894.png" alt="" width="16" height="16" /> tkbremnes (Norwegian Bokmal)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16527851/medium/649e5a9a8a8cc61ced670d89e9cca082.png" alt="" width="16" height="16" /> tux93 (German)
+- <img src="https://crowdin-static.downloads.crowdin.com/avatar/16791511/medium/321c72613cd27efc3005e7c3bf383578.jpeg" alt="" width="16" height="16" /> uzaylul (Turkish)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/14427566/medium/ab733b5044c21867fc5a9d1b22cd2c03.png" alt="" width="16" height="16" /> Vac31. (Lithuanian)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16026914/medium/e3ca187f354a298ef0c9d02a0ed17be7.jpg" alt="" width="16" height="16" /> valtlai (Finnish)
 - <img src="https://crowdin-static.downloads.crowdin.com/avatar/16608515/medium/85506c21dce8df07843ca11908ee3951.jpeg" alt="" width="16" height="16" /> vasiriri (Polish)

@@ -1,5 +1,5 @@
-import { msg, Plural, Select, t, Trans } from '@lingui/macro';
-import { useLingui } from '@lingui/react';
+import { msg, t } from '@lingui/core/macro';
+import { Plural, Select, Trans, useLingui } from '@lingui/react/macro';
 import { Fragment } from 'preact';
 import { memo } from 'preact/compat';
 
@@ -33,6 +33,7 @@ const NOTIFICATION_ICONS = {
   moderation_warning: 'alert',
   emoji_reaction: 'emoji2',
   'pleroma:emoji_reaction': 'emoji2',
+  annual_report: 'celebrate',
 };
 
 /*
@@ -261,6 +262,7 @@ const contentText = {
   ),
   emoji_reaction: emojiText,
   'pleroma:emoji_reaction': emojiText,
+  annual_report: ({ year }) => <Trans>Your {year} #Wrapstodon is here!</Trans>,
 };
 
 // account_suspension, domain_block, user_domain_block
@@ -312,6 +314,7 @@ function Notification({
     report,
     event,
     moderation_warning,
+    annualReport,
     // Client-side grouped notification
     _ids,
     _accounts,
@@ -409,6 +412,10 @@ function Notification({
         emoji: notification.emoji,
         emojiURL,
       });
+    } else if (type === 'annual_report') {
+      text = text({
+        ...notification.annualReport,
+      });
     } else {
       text = text({
         account: account ? (
@@ -503,7 +510,7 @@ function Notification({
                 <a
                   href={`https://${instance}/severed_relationships`}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener"
                 >
                   <Trans>
                     Learn more <Icon icon="external" size="s" />
@@ -519,12 +526,19 @@ function Notification({
                 <a
                   href={`/disputes/strikes/${moderation_warning.id}`}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener"
                 >
                   <Trans>
                     Learn more <Icon icon="external" size="s" />
                   </Trans>
                 </a>
+              </div>
+            )}
+            {type === 'annual_report' && (
+              <div>
+                <Link to={`/annual_report/${annualReport?.year}`}>
+                  <Trans>View #Wrapstodon</Trans>
+                </Link>
               </div>
             )}
           </>
@@ -536,7 +550,7 @@ function Notification({
                 <a
                   key={account.id}
                   href={account.url}
-                  rel="noopener noreferrer"
+                  rel="noopener"
                   class="account-avatar-stack"
                   onClick={(e) => {
                     e.preventDefault();
@@ -549,8 +563,8 @@ function Notification({
                       _accounts.length <= 10
                         ? 'xxl'
                         : _accounts.length < 20
-                        ? 'xl'
-                        : 'l'
+                          ? 'xl'
+                          : 'l'
                     }
                     key={account.id}
                     alt={`${account.displayName} @${account.acct}`}
@@ -593,8 +607,8 @@ function Notification({
                         const type = /^favourite/.test(key)
                           ? 'favourite'
                           : /^reblog/.test(key)
-                          ? 'reblog'
-                          : null;
+                            ? 'reblog'
+                            : null;
                         if (!type) continue;
                         for (const account of _accounts) {
                           const theAccount = accounts.find(
@@ -640,7 +654,7 @@ function Notification({
                 <a
                   key={account.id}
                   href={account.url}
-                  rel="noopener noreferrer"
+                  rel="noopener"
                   class="account-avatar-stack"
                   onClick={(e) => {
                     e.preventDefault();

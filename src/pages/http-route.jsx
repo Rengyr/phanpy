@@ -1,4 +1,4 @@
-import { t, Trans } from '@lingui/macro';
+import { Trans } from '@lingui/react/macro';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { useLocation } from 'react-router-dom';
 
@@ -68,7 +68,7 @@ export default function HttpRoute() {
             <Trans>Resolving…</Trans>
           </h2>
           <p>
-            <a href={url} target="_blank" rel="noopener noreferrer">
+            <a href={url} target="_blank" rel="noopener">
               {url}
             </a>
           </p>
@@ -79,7 +79,7 @@ export default function HttpRoute() {
             <Trans>Unable to resolve URL</Trans>
           </h2>
           <p>
-            <a href={url} target="_blank" rel="noopener noreferrer">
+            <a href={url} target="_blank" rel="noopener">
               {url}
             </a>
           </p>

@@ -1,6 +1,6 @@
 import './login.css';
 
-import { t, Trans } from '@lingui/macro';
+import { Trans, useLingui } from '@lingui/react/macro';
 import Fuse from 'fuse.js';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useSearchParams } from 'react-router-dom';
@@ -23,7 +23,8 @@ import useTitle from '../utils/useTitle';
 const { PHANPY_DEFAULT_INSTANCE: DEFAULT_INSTANCE } = import.meta.env;
 
 function Login() {
-  useTitle('Log in');
+  const { t } = useLingui();
+  useTitle(t`Log in`, '/login');
   const instanceURLRef = useRef();
   const cachedInstanceURL = store.local.get('instanceURL');
   const [uiState, setUIState] = useState('default');
@@ -152,10 +153,10 @@ function Login() {
   const selectedInstanceText = instanceTextLooksLikeDomain
     ? cleanInstanceText
     : instancesSuggestions?.length
-    ? instancesSuggestions[0]
-    : instanceText
-    ? instancesList.find((instance) => instance.includes(instanceText))
-    : null;
+      ? instancesSuggestions[0]
+      : instanceText
+        ? instancesList.find((instance) => instance.includes(instanceText))
+        : null;
 
   const onSubmit = (e) => {
     e.preventDefault();
