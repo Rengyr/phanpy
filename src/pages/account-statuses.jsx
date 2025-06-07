@@ -255,12 +255,8 @@ function AccountStatuses() {
   }
   useTitle(title, '/:instance?/a/:id');
 
-  const fetchAccountPromiseRef = useRef();
   const fetchAccount = useCallback(() => {
-    const fetchPromise =
-      fetchAccountPromiseRef.current || masto.v1.accounts.$select(id).fetch();
-    fetchAccountPromiseRef.current = fetchPromise;
-    return fetchPromise;
+    return memFetchAccount(id, masto);
   }, [id, masto]);
 
   useEffect(() => {
@@ -471,7 +467,7 @@ function AccountStatuses() {
 
   const accountInstance = useMemo(() => {
     if (!account?.url) return null;
-    const domain = URL.parse(account.url).hostname;
+    const domain = URL.parse(account.url)?.hostname;
     return domain;
   }, [account]);
   const sameInstance = instance === accountInstance;
@@ -691,5 +687,12 @@ function MonthPicker(props) {
     </div>
   );
 }
+
+function fetchAccount(id, masto) {
+  return masto.v1.accounts.$select(id).fetch();
+}
+const memFetchAccount = pmem(fetchAccount, {
+  maxAge: 30 * 60 * 1000, // 30 minutes
+});
 
 export default AccountStatuses;

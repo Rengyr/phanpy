@@ -41,10 +41,12 @@ import Modal from '../components/modal';
 import NameText from '../components/name-text';
 import Poll from '../components/poll';
 import { api } from '../utils/api';
+import { langDetector } from '../utils/browser-translator';
 import emojifyText from '../utils/emojify-text';
 import enhanceContent from '../utils/enhance-content';
 import FilterContext from '../utils/filter-context';
 import { isFiltered } from '../utils/filters';
+import getDomain from '../utils/get-domain';
 import getTranslateTargetLanguage from '../utils/get-translate-target-language';
 import getHTMLText from '../utils/getHTMLText';
 import handleContentLinks from '../utils/handle-content-links';
@@ -52,6 +54,7 @@ import htmlContentLength from '../utils/html-content-length';
 import isRTL from '../utils/is-rtl';
 import isMastodonLinkMaybe from '../utils/isMastodonLinkMaybe';
 import localeMatch from '../utils/locale-match';
+import mem from '../utils/mem';
 import niceDateTime from '../utils/nice-date-time';
 import openCompose from '../utils/open-compose';
 import pmem from '../utils/pmem';
@@ -116,8 +119,17 @@ function getPollText(poll) {
     )
     .join('\n')}`;
 }
-function getPostText(status) {
-  const { spoilerText, content, poll } = status;
+function getPostText(status, opts) {
+  const { maskCustomEmojis } = opts || {};
+  const { spoilerText, poll, emojis } = status;
+  let { content } = status;
+  if (maskCustomEmojis && emojis?.length) {
+    const emojisRegex = new RegExp(
+      `:(${emojis.map((e) => e.shortcode).join('|')}):`,
+      'g',
+    );
+    content = content.replace(emojisRegex, '⬚');
+  }
   return (
     (spoilerText ? `${spoilerText}\n\n` : '') +
     getHTMLText(content) +
@@ -136,8 +148,16 @@ function forgivingQSA(selectors = [], dom = document) {
   return [];
 }
 
-function isTranslateble(content) {
+function isTranslateble(content, emojis) {
   if (!content) return false;
+  // Remove custom emojis
+  if (emojis?.length) {
+    const emojisRegex = new RegExp(
+      `:(${emojis.map((e) => e.shortcode).join('|')}):`,
+      'g',
+    );
+    content = content.replace(emojisRegex, '');
+  }
   content = content.trim();
   if (!content) return false;
   const text = getHTMLText(content, {
@@ -154,7 +174,15 @@ function isTranslateble(content) {
   return !!text;
 }
 
-function getHTMLTextForDetectLang(content) {
+function getHTMLTextForDetectLang(content, emojis) {
+  if (emojis?.length) {
+    const emojisRegex = new RegExp(
+      `:(${emojis.map((e) => e.shortcode).join('|')}):`,
+      'g',
+    );
+    content = content.replace(emojisRegex, '');
+  }
+
   return getHTMLText(content, {
     preProcess: (dom) => {
       // Remove anything that can skew the language detection
@@ -201,7 +229,7 @@ const PostContent =
         }
       }
       divRef.current.replaceChildren(dom.cloneNode(true));
-    }, [content, emojis.length]);
+    }, [content, emojis?.length]);
 
     return (
       <div
@@ -245,7 +273,6 @@ const SIZE_CLASS = {
 };
 
 const detectLang = pmem(async (text) => {
-  const { detectAll } = await import('tinyld/light');
   text = text?.trim();
 
   // Ref: https://github.com/komodojp/tinyld/blob/develop/docs/benchmark.md
@@ -253,7 +280,29 @@ const detectLang = pmem(async (text) => {
   if (text?.length > 500) {
     return null;
   }
+
+  if (langDetector) {
+    const langs = await langDetector.detect(text);
+    console.groupCollapsed(
+      '💬 DETECTLANG BROWSER',
+      langs.slice(0, 3).map((l) => l.detectedLanguage),
+    );
+    console.log(text, langs.slice(0, 3));
+    console.groupEnd();
+    const lang = langs[0];
+    if (lang?.detectedLanguage && lang?.confidence > 0.5) {
+      return lang.detectedLanguage;
+    }
+  }
+
+  const { detectAll } = await import('tinyld/light');
   const langs = detectAll(text);
+  console.groupCollapsed(
+    '💬 DETECTLANG TINYLD',
+    langs.slice(0, 3).map((l) => l.lang),
+  );
+  console.log(text, langs.slice(0, 3));
+  console.groupEnd();
   const lang = langs[0];
   if (lang?.lang && lang?.accuracy > 0.5) {
     // If > 50% accurate, use it
@@ -281,9 +330,28 @@ const checkDifferentLanguage = (
     !contentTranslationHideLanguages.find(
       (l) => language === l || localeMatch([language], [l]),
     );
-  DIFFERENT_LANG_CHECK[language + contentTranslationHideLanguages] = true;
+  if (different)
+    DIFFERENT_LANG_CHECK[language + contentTranslationHideLanguages] = true;
   return different;
 };
+
+const getCurrentAccID = mem(
+  () => {
+    return getCurrentAccountID();
+  },
+  {
+    maxAge: 60 * 1000, // 1 minute
+  },
+);
+
+const getPrefs = mem(
+  () => {
+    return store.account.get('preferences') || {};
+  },
+  {
+    maxAge: 60 * 1000, // 1 minute
+  },
+);
 
 function Status({
   statusID,
@@ -298,7 +366,7 @@ function Status({
   enableTranslate,
   forceTranslate: _forceTranslate,
   previewMode,
-  // allowFilters,
+  allowFilters,
   onMediaClick,
   quoted,
   onStatusLinkClick = () => {},
@@ -358,7 +426,7 @@ function Status({
       emojis: accountEmojis,
       bot,
       group,
-    },
+    } = {},
     id,
     repliesCount,
     reblogged,
@@ -402,7 +470,9 @@ function Status({
     if (languageAutoDetected) return;
     let timer;
     timer = setTimeout(async () => {
-      let detected = await detectLang(getHTMLTextForDetectLang(content));
+      let detected = await detectLang(
+        getHTMLTextForDetectLang(content, emojis),
+      );
       setLanguageAutoDetected(detected);
     }, 1000);
     return () => clearTimeout(timer);
@@ -413,22 +483,22 @@ function Status({
   const hasMediaAttachments = !!mediaAttachments?.length;
   if (mediaFirst && hasMediaAttachments) size = 's';
 
-  const currentAccount = useMemo(() => {
-    return getCurrentAccountID();
-  }, []);
+  const currentAccount = getCurrentAccID();
   const isSelf = useMemo(() => {
     return currentAccount && currentAccount === accountId;
   }, [accountId, currentAccount]);
 
   const filterContext = useContext(FilterContext);
   const filterInfo =
-    !isSelf && !readOnly && !previewMode && isFiltered(filtered, filterContext);
+    !isSelf &&
+    ((!readOnly && !previewMode) || allowFilters) &&
+    isFiltered(filtered, filterContext);
 
   if (filterInfo?.action === 'hide') {
     return null;
   }
 
-  console.debug('RENDER Status', id, status?.account.displayName, quoted);
+  console.debug('RENDER Status', id, status?.account?.displayName, quoted);
 
   const debugHover = (e) => {
     if (e.shiftKey) {
@@ -438,7 +508,11 @@ function Status({
     }
   };
 
-  if (/*allowFilters && */ size !== 'l' && filterInfo) {
+  if (
+    (allowFilters || size !== 'l') &&
+    filterInfo &&
+    filterInfo.action !== 'blur'
+  ) {
     return (
       <FilteredStatus
         status={status}
@@ -481,13 +555,13 @@ function Status({
     mentions?.find((mention) => mention.id === currentAccount);
 
   const readingExpandSpoilers = useMemo(() => {
-    const prefs = store.account.get('preferences') || {};
+    const prefs = getPrefs();
     return !!prefs['reading:expand:spoilers'];
   }, []);
   const readingExpandMedia = useMemo(() => {
     // default | show_all | hide_all
     // Ignore hide_all because it means hide *ALL* media including non-sensitive ones
-    const prefs = store.account.get('preferences') || {};
+    const prefs = getPrefs();
     return prefs['reading:expand:media']?.toLowerCase() || 'default';
   }, []);
   // FOR TESTING:
@@ -497,7 +571,7 @@ function Status({
     previewMode || readingExpandSpoilers || !!snapStates.spoilers[id];
   const showSpoilerMedia =
     previewMode ||
-    readingExpandMedia === 'show_all' ||
+    (readingExpandMedia === 'show_all' && filterInfo?.action !== 'blur') ||
     !!snapStates.spoilersMedia[id];
 
   if (reblog) {
@@ -646,7 +720,7 @@ function Status({
     [spoilerText, content],
   );
 
-  const createdDateText = niceDateTime(createdAtDate);
+  const createdDateText = createdAt && niceDateTime(createdAtDate);
   const editedDateText = editedAt && niceDateTime(editedAtDate);
 
   // Can boost if:
@@ -844,16 +918,19 @@ function Status({
   const contentTranslationHideLanguages =
     snapStates.settings.contentTranslationHideLanguages || [];
   const [differentLanguage, setDifferentLanguage] = useState(
-    DIFFERENT_LANG_CHECK[language + contentTranslationHideLanguages]
-      ? checkDifferentLanguage(language, contentTranslationHideLanguages)
-      : false,
+    () =>
+      DIFFERENT_LANG_CHECK[language + contentTranslationHideLanguages] ||
+      checkDifferentLanguage(language, contentTranslationHideLanguages),
   );
   useEffect(() => {
+    if (!language || differentLanguage) {
+      return;
+    }
     if (
-      !language ||
-      differentLanguage ||
+      !differentLanguage &&
       DIFFERENT_LANG_CHECK[language + contentTranslationHideLanguages]
     ) {
+      setDifferentLanguage(true);
       return;
     }
     let timeout = setTimeout(() => {
@@ -1045,70 +1122,72 @@ function Status({
           </MenuItem>
         </>
       )}
-      {!mediaFirst && (
-        <>
-          {(enableTranslate || !language || differentLanguage) && (
-            <MenuDivider />
-          )}
+      {(isSizeLarge ||
+        (!mediaFirst &&
+          (enableTranslate || !language || differentLanguage))) && (
+        <MenuDivider />
+      )}
+      {!mediaFirst && (enableTranslate || !language || differentLanguage) && (
+        <div class={supportsTTS ? 'menu-horizontal' : ''}>
           {enableTranslate ? (
-            <div class={supportsTTS ? 'menu-horizontal' : ''}>
-              <MenuItem
-                disabled={forceTranslate}
-                onClick={() => {
-                  setForceTranslate(true);
-                }}
-              >
-                <Icon icon="translate" />
-                <span>
-                  <Trans>Translate</Trans>
-                </span>
-              </MenuItem>
-              {supportsTTS && (
-                <MenuItem
-                  onClick={() => {
-                    const postText = getPostText(status);
-                    if (postText) {
-                      speak(postText, language);
-                    }
-                  }}
-                >
-                  <Icon icon="speak" />
-                  <span>
-                    <Trans>Speak</Trans>
-                  </span>
-                </MenuItem>
-              )}
-            </div>
+            <MenuItem
+              disabled={forceTranslate}
+              onClick={() => setForceTranslate(true)}
+            >
+              <Icon icon="translate" />
+              <span>
+                <Trans>Translate</Trans>
+              </span>
+            </MenuItem>
           ) : (
-            (!language || differentLanguage) && (
-              <div class={supportsTTS ? 'menu-horizontal' : ''}>
-                <MenuLink
-                  to={`${instance ? `/${instance}` : ''}/s/${id}?translate=1`}
-                >
-                  <Icon icon="translate" />
-                  <span>
-                    <Trans>Translate</Trans>
-                  </span>
-                </MenuLink>
-                {supportsTTS && (
-                  <MenuItem
-                    onClick={() => {
-                      const postText = getPostText(status);
-                      if (postText) {
-                        speak(postText, language);
-                      }
-                    }}
-                  >
-                    <Icon icon="speak" />
-                    <span>
-                      <Trans>Speak</Trans>
-                    </span>
-                  </MenuItem>
-                )}
-              </div>
-            )
+            <MenuLink
+              to={`${instance ? `/${instance}` : ''}/s/${id}?translate=1`}
+            >
+              <Icon icon="translate" />
+              <span>
+                <Trans>Translate</Trans>
+              </span>
+            </MenuLink>
           )}
-        </>
+          {supportsTTS && (
+            <MenuItem
+              onClick={() => {
+                try {
+                  const postText = getPostText(status);
+                  if (postText) {
+                    speak(postText, language);
+                  }
+                } catch (error) {
+                  console.error('Failed to speak text:', error);
+                }
+              }}
+            >
+              <Icon icon="speak" />
+              <span>
+                <Trans>Speak</Trans>
+              </span>
+            </MenuItem>
+          )}
+        </div>
+      )}
+      {isSizeLarge && (
+        <MenuItem
+          onClick={() => {
+            try {
+              const postText = getPostText(status);
+              navigator.clipboard.writeText(postText);
+              showToast(t`Post text copied`);
+            } catch (e) {
+              console.error(e);
+              showToast(t`Unable to copy post text`);
+            }
+          }}
+        >
+          <Icon icon="clipboard" />
+          <span>
+            <Trans>Copy post text</Trans>
+          </span>
+        </MenuItem>
       )}
       {((!isSizeLarge && sameInstance) ||
         enableTranslate ||
@@ -1420,16 +1499,22 @@ function Status({
   const hotkeysEnabled = !readOnly && !previewMode && !quoted;
   const rRef = useHotkeys('r, shift+r', replyStatus, {
     enabled: hotkeysEnabled,
+    useKey: true,
   });
   const fRef = useHotkeys('f, l', favouriteStatusNotify, {
     enabled: hotkeysEnabled,
+    useKey: true,
   });
   const dRef = useHotkeys('d', bookmarkStatusNotify, {
     enabled: hotkeysEnabled,
+    useKey: true,
   });
   const bRef = useHotkeys(
     'shift+b',
-    () => {
+    (e) => {
+      // Need shiftKey check due to useKey: true
+      if (!e.shiftKey) return;
+
       (async () => {
         try {
           const done = await confirmBoostStatus();
@@ -1445,30 +1530,37 @@ function Status({
     },
     {
       enabled: hotkeysEnabled && canBoost,
+      useKey: true,
     },
   );
-  const xRef = useHotkeys('x', (e) => {
-    const activeStatus = document.activeElement.closest(
-      '.status-link, .status-focus',
-    );
-    if (activeStatus) {
-      const spoilerButton = activeStatus.querySelector(
-        '.spoiler-button:not(.spoiling)',
+  const xRef = useHotkeys(
+    'x',
+    (e) => {
+      const activeStatus = document.activeElement.closest(
+        '.status-link, .status-focus',
       );
-      if (spoilerButton) {
-        e.stopPropagation();
-        spoilerButton.click();
-      } else {
-        const spoilerMediaButton = activeStatus.querySelector(
-          '.spoiler-media-button:not(.spoiling)',
+      if (activeStatus) {
+        const spoilerButton = activeStatus.querySelector(
+          '.spoiler-button:not(.spoiling)',
         );
-        if (spoilerMediaButton) {
+        if (spoilerButton) {
           e.stopPropagation();
-          spoilerMediaButton.click();
+          spoilerButton.click();
+        } else {
+          const spoilerMediaButton = activeStatus.querySelector(
+            '.spoiler-media-button:not(.spoiling)',
+          );
+          if (spoilerMediaButton) {
+            e.stopPropagation();
+            spoilerMediaButton.click();
+          }
         }
       }
-    }
-  });
+    },
+    {
+      useKey: true,
+    },
+  );
 
   const displayedMediaAttachments = mediaAttachments.slice(
     0,
@@ -1617,11 +1709,11 @@ function Status({
             node?.closest?.(
               '.timeline-item, .timeline-item-alt, .status-link, .status-focus',
             ) || node;
-          rRef(nodeRef);
-          fRef(nodeRef);
-          dRef(nodeRef);
-          bRef(nodeRef);
-          xRef(nodeRef);
+          rRef.current = nodeRef;
+          fRef.current = nodeRef;
+          dRef.current = nodeRef;
+          bRef.current = nodeRef;
+          xRef.current = nodeRef;
         }}
         tabindex="-1"
         class={`status ${
@@ -1792,146 +1884,148 @@ function Status({
           </a>
         )}
         <div class="container">
-          <div class="meta">
-            <span class="meta-name">
-              <NameText
-                account={status.account}
-                instance={instance}
-                showAvatar={size === 's'}
-                showAcct={isSizeLarge}
-              />
-            </span>
-            {/* {inReplyToAccount && !withinContext && size !== 's' && (
-              <>
-                {' '}
-                <span class="ib">
-                  <Icon icon="arrow-right" class="arrow" />{' '}
-                  <NameText account={inReplyToAccount} instance={instance} short />
-                </span>
-              </>
-            )} */}
-            {/* </span> */}{' '}
-            {size !== 'l' &&
-              (_deleted ? (
-                <span class="status-deleted-tag">
-                  <Trans>Deleted</Trans>
-                </span>
-              ) : url && !previewMode && !readOnly && !quoted ? (
-                <Link
-                  to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
-                  onClick={(e) => {
-                    if (
-                      e.metaKey ||
-                      e.ctrlKey ||
-                      e.shiftKey ||
-                      e.altKey ||
-                      e.which === 2
-                    ) {
-                      return;
-                    }
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onStatusLinkClick?.(e, status);
-                    setContextMenuProps({
-                      anchorRef: {
-                        current: e.currentTarget,
-                      },
-                      align: 'end',
-                      direction: 'bottom',
-                      gap: 4,
-                    });
-                    setIsContextMenuOpen(true);
-                  }}
-                  class={`time ${
-                    isContextMenuOpen && contextMenuProps?.anchorRef
-                      ? 'is-open'
-                      : ''
-                  }`}
-                >
-                  {showCommentHint && !showCommentCount ? (
-                    <Icon
-                      icon="comment2"
-                      size="s"
-                      // alt={`${repliesCount} ${
-                      //   repliesCount === 1 ? 'reply' : 'replies'
-                      // }`}
-                      alt={plural(repliesCount, {
-                        one: '# reply',
-                        other: '# replies',
-                      })}
-                    />
-                  ) : (
-                    visibility !== 'public' &&
-                    visibility !== 'direct' && (
+          {!!(status.account || createdAt) && (
+            <div class="meta">
+              <span class="meta-name">
+                <NameText
+                  account={status.account}
+                  instance={instance}
+                  showAvatar={size === 's'}
+                  showAcct={isSizeLarge}
+                />
+              </span>
+              {/* {inReplyToAccount && !withinContext && size !== 's' && (
+                <>
+                  {' '}
+                  <span class="ib">
+                    <Icon icon="arrow-right" class="arrow" />{' '}
+                    <NameText account={inReplyToAccount} instance={instance} short />
+                  </span>
+                </>
+              )} */}
+              {/* </span> */}{' '}
+              {size !== 'l' &&
+                (_deleted ? (
+                  <span class="status-deleted-tag">
+                    <Trans>Deleted</Trans>
+                  </span>
+                ) : url && !previewMode && !readOnly && !quoted ? (
+                  <Link
+                    to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
+                    onClick={(e) => {
+                      if (
+                        e.metaKey ||
+                        e.ctrlKey ||
+                        e.shiftKey ||
+                        e.altKey ||
+                        e.which === 2
+                      ) {
+                        return;
+                      }
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onStatusLinkClick?.(e, status);
+                      setContextMenuProps({
+                        anchorRef: {
+                          current: e.currentTarget,
+                        },
+                        align: 'end',
+                        direction: 'bottom',
+                        gap: 4,
+                      });
+                      setIsContextMenuOpen(true);
+                    }}
+                    class={`time ${
+                      isContextMenuOpen && contextMenuProps?.anchorRef
+                        ? 'is-open'
+                        : ''
+                    }`}
+                  >
+                    {showCommentHint && !showCommentCount ? (
                       <Icon
-                        icon={visibilityIconsMap[visibility]}
-                        alt={_(visibilityText[visibility])}
+                        icon="comment2"
                         size="s"
+                        // alt={`${repliesCount} ${
+                        //   repliesCount === 1 ? 'reply' : 'replies'
+                        // }`}
+                        alt={plural(repliesCount, {
+                          one: '# reply',
+                          other: '# replies',
+                        })}
                       />
-                    )
-                  )}{' '}
-                  <RelativeTime datetime={createdAtDate} format="micro" />
-                  {!previewMode && !readOnly && (
-                    <Icon icon="more2" class="more" alt={t`More`} />
-                  )}
-                </Link>
-              ) : (
-                // <Menu
-                //   instanceRef={menuInstanceRef}
-                //   portal={{
-                //     target: document.body,
-                //   }}
-                //   containerProps={{
-                //     style: {
-                //       // Higher than the backdrop
-                //       zIndex: 1001,
-                //     },
-                //     onClick: (e) => {
-                //       if (e.target === e.currentTarget)
-                //         menuInstanceRef.current?.closeMenu?.();
-                //     },
-                //   }}
-                //   align="end"
-                //   gap={4}
-                //   overflow="auto"
-                //   viewScroll="close"
-                //   boundingBoxPadding="8 8 8 8"
-                //   unmountOnClose
-                //   menuButton={({ open }) => (
-                //     <Link
-                //       to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
-                //       onClick={(e) => {
-                //         e.preventDefault();
-                //         e.stopPropagation();
-                //         onStatusLinkClick?.(e, status);
-                //       }}
-                //       class={`time ${open ? 'is-open' : ''}`}
-                //     >
-                //       <Icon
-                //         icon={visibilityIconsMap[visibility]}
-                //         alt={visibilityText[visibility]}
-                //         size="s"
-                //       />{' '}
-                //       <RelativeTime datetime={createdAtDate} format="micro" />
-                //     </Link>
-                //   )}
-                // >
-                //   {StatusMenuItems}
-                // </Menu>
-                <span class="time">
-                  {visibility !== 'public' && visibility !== 'direct' && (
-                    <>
-                      <Icon
-                        icon={visibilityIconsMap[visibility]}
-                        alt={_(visibilityText[visibility])}
-                        size="s"
-                      />{' '}
-                    </>
-                  )}
-                  <RelativeTime datetime={createdAtDate} format="micro" />
-                </span>
-              ))}
-          </div>
+                    ) : (
+                      visibility !== 'public' &&
+                      visibility !== 'direct' && (
+                        <Icon
+                          icon={visibilityIconsMap[visibility]}
+                          alt={_(visibilityText[visibility])}
+                          size="s"
+                        />
+                      )
+                    )}{' '}
+                    <RelativeTime datetime={createdAtDate} format="micro" />
+                    {!previewMode && !readOnly && (
+                      <Icon icon="more2" class="more" alt={t`More`} />
+                    )}
+                  </Link>
+                ) : (
+                  // <Menu
+                  //   instanceRef={menuInstanceRef}
+                  //   portal={{
+                  //     target: document.body,
+                  //   }}
+                  //   containerProps={{
+                  //     style: {
+                  //       // Higher than the backdrop
+                  //       zIndex: 1001,
+                  //     },
+                  //     onClick: (e) => {
+                  //       if (e.target === e.currentTarget)
+                  //         menuInstanceRef.current?.closeMenu?.();
+                  //     },
+                  //   }}
+                  //   align="end"
+                  //   gap={4}
+                  //   overflow="auto"
+                  //   viewScroll="close"
+                  //   boundingBoxPadding="8 8 8 8"
+                  //   unmountOnClose
+                  //   menuButton={({ open }) => (
+                  //     <Link
+                  //       to={instance ? `/${instance}/s/${id}` : `/s/${id}`}
+                  //       onClick={(e) => {
+                  //         e.preventDefault();
+                  //         e.stopPropagation();
+                  //         onStatusLinkClick?.(e, status);
+                  //       }}
+                  //       class={`time ${open ? 'is-open' : ''}`}
+                  //     >
+                  //       <Icon
+                  //         icon={visibilityIconsMap[visibility]}
+                  //         alt={visibilityText[visibility]}
+                  //         size="s"
+                  //       />{' '}
+                  //       <RelativeTime datetime={createdAtDate} format="micro" />
+                  //     </Link>
+                  //   )}
+                  // >
+                  //   {StatusMenuItems}
+                  // </Menu>
+                  <span class="time">
+                    {visibility !== 'public' && visibility !== 'direct' && (
+                      <>
+                        <Icon
+                          icon={visibilityIconsMap[visibility]}
+                          alt={_(visibilityText[visibility])}
+                          size="s"
+                        />{' '}
+                      </>
+                    )}
+                    <RelativeTime datetime={createdAtDate} format="micro" />
+                  </span>
+                ))}
+            </div>
+          )}
           {visibility === 'direct' && (
             <>
               <div class="status-direct-badge">
@@ -1972,7 +2066,9 @@ function Status({
           )}
           <div
             class={`content-container ${
-              spoilerText || sensitive ? 'has-spoiler' : ''
+              spoilerText || sensitive || filterInfo?.action === 'blur'
+                ? 'has-spoiler'
+                : ''
             } ${showSpoiler ? 'show-spoiler' : ''} ${
               showSpoilerMedia ? 'show-media' : ''
             }`}
@@ -2133,7 +2229,7 @@ function Status({
                   />
                 )}
                 {(((enableTranslate || inlineTranslate) &&
-                  isTranslateble(content) &&
+                  isTranslateble(content, emojis) &&
                   differentLanguage) ||
                   forceTranslate) && (
                   <TranslationBlock
@@ -2141,13 +2237,16 @@ function Status({
                     mini={!isSizeLarge && !withinContext}
                     sourceLanguage={language}
                     autoDetected={languageAutoDetected}
-                    text={getPostText(status)}
+                    text={getPostText(status, {
+                      maskCustomEmojis: true,
+                    })}
                   />
                 )}
                 {!previewMode &&
-                  sensitive &&
+                  (sensitive || filterInfo?.action === 'blur') &&
                   !!mediaAttachments.length &&
-                  readingExpandMedia !== 'show_all' && (
+                  (readingExpandMedia !== 'show_all' ||
+                    filterInfo?.action === 'blur') && (
                     <button
                       class={`plain spoiler-media-button ${
                         showSpoilerMedia ? 'spoiling' : ''
@@ -2167,7 +2266,15 @@ function Status({
                       <Icon
                         icon={showSpoilerMedia ? 'eye-open' : 'eye-close'}
                       />{' '}
-                      {showSpoilerMedia ? t`Show less` : t`Show media`}
+                      <span>
+                        {filterInfo?.action === 'blur' && (
+                          <small>
+                            <Trans>Filtered: {filterInfo?.titlesStr}</Trans>
+                            <br />
+                          </small>
+                        )}
+                        {showSpoilerMedia ? t`Show less` : t`Show media`}
+                      </span>
                     </button>
                   )}
                 {!!mediaAttachments.length &&
@@ -2293,13 +2400,15 @@ function Status({
                           </>
                         )
                       }
-                      <time
-                        class="created"
-                        datetime={createdAtDate.toISOString()}
-                        title={createdAtDate.toLocaleString()}
-                      >
-                        {createdDateText}
-                      </time>
+                      {!!createdAt && (
+                        <time
+                          class="created"
+                          datetime={createdAtDate.toISOString()}
+                          title={createdAtDate.toLocaleString()}
+                        >
+                          {createdDateText}
+                        </time>
+                      )}
                     </a>
                     {editedAt && (
                       <>
@@ -2487,7 +2596,7 @@ function Status({
                     </div>
                   }
                 >
-                  {StatusMenuItems}
+                  {StatusMenuItems}{' '}
                 </Menu2>
                 )}
               </div>
@@ -2656,14 +2765,6 @@ function MediaFirstContainer(props) {
         </div>
       )}
     </>
-  );
-}
-
-function getDomain(url) {
-  return punycode.toUnicode(
-    URL.parse(url)
-      .hostname.replace(/^www\./, '')
-      .replace(/\/$/, ''),
   );
 }
 
@@ -3187,7 +3288,7 @@ function generateHTMLCode(post, instance, level = 0) {
         — ${emojifyText(
           displayName,
           accountEmojis,
-        )} (@${acct}) <a href="${url}"><time datetime="${createdAtDate.toISOString()}">${createdAtDate.toLocaleString()}</time></a>
+        )} (@${acct}) ${!!createdAt ? `<a href="${url}"><time datetime="${createdAtDate.toISOString()}">${createdAtDate.toLocaleString()}</time></a>` : ''}
       </footer>
     </blockquote>
   `;
@@ -3484,6 +3585,7 @@ const StatusButton = forwardRef((props, ref) => {
 function nicePostURL(url) {
   if (!url) return;
   const urlObj = URL.parse(url);
+  if (!urlObj) return;
   const { host, pathname } = urlObj;
   const path = pathname.replace(/\/$/, '');
   // split only first slash
@@ -3514,6 +3616,7 @@ function StatusCompact({ sKey }) {
   if (!status) return null;
 
   const {
+    account: { id: accountId },
     sensitive,
     spoilerText,
     account: { avatar, avatarStatic, bot } = {},
@@ -3528,8 +3631,15 @@ function StatusCompact({ sKey }) {
   const srKey = statusKey(id, instance);
   const statusPeekText = statusPeek(status);
 
+  const currentAccount = getCurrentAccID();
+  const isSelf = currentAccount && currentAccount === accountId;
+
   const filterContext = useContext(FilterContext);
-  const filterInfo = isFiltered(filtered, filterContext);
+  let filterInfo = !isSelf && isFiltered(filtered, filterContext);
+
+  // This is fine. Images are converted to emojis so they are
+  // in a way, already "obscured"
+  if (filterInfo?.action === 'blur') filterInfo = null;
 
   if (filterInfo?.action === 'hide') return null;
 
@@ -3616,7 +3726,7 @@ function FilteredStatus({
 
   return (
     <div
-      class={
+      class={`${
         quoted
           ? ''
           : isReblog
@@ -3626,7 +3736,7 @@ function FilteredStatus({
             : isFollowedTags
               ? 'status-followed-tags'
               : ''
-      }
+      } visibility-${visibility}`}
       {...containerProps}
       // title={statusPeekText}
       onContextMenu={(e) => {

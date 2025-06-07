@@ -199,6 +199,7 @@ function Mentions({ columnMode, ...props }) {
         useItemID
         timelineStart={TimelineStart}
         refresh={type}
+        filterContext="notifications"
       />
     );
   }
@@ -215,6 +216,7 @@ function Mentions({ columnMode, ...props }) {
         useItemID
         timelineStart={TimelineStart}
         refresh={type}
+        filterContext="notifications"
       />
     );
   }
