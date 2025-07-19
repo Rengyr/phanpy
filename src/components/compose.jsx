@@ -2042,7 +2042,7 @@ const Textarea = forwardRef((props, ref) => {
                 <li role="option" data-value="${encodeHTML(shortcode)}">
                 <img src="${encodeHTML(
                   url,
-                )}" width="16" height="16" alt="" loading="lazy" />
+                )}" width="32" height="32" alt="" loading="lazy" />
                 ${encodeHTML(shortcode)}
               </li>`;
           });
