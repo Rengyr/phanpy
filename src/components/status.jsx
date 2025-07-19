@@ -1,4 +1,6 @@
 import './status.css';
+import 'temml/dist/Temml-Local.css';
+
 import '@justinribeiro/lite-youtube';
 
 import { msg, plural } from '@lingui/core/macro';
@@ -22,6 +24,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'preact/hooks';
@@ -40,7 +43,7 @@ import Menu2 from '../components/menu2';
 import Modal from '../components/modal';
 import NameText from '../components/name-text';
 import Poll from '../components/poll';
-import { api } from '../utils/api';
+import { api, getPreferences } from '../utils/api';
 import { langDetector } from '../utils/browser-translator';
 import emojifyText from '../utils/emojify-text';
 import enhanceContent from '../utils/enhance-content';
@@ -104,7 +107,7 @@ const isIOS =
   window.ontouchstart !== undefined &&
   /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-const rtf = new Intl.RelativeTimeFormat();
+const RTF = mem((locale) => new Intl.RelativeTimeFormat(locale || undefined));
 
 const REACTIONS_LIMIT = 80;
 
@@ -120,7 +123,7 @@ function getPollText(poll) {
     .join('\n')}`;
 }
 function getPostText(status, opts) {
-  const { maskCustomEmojis } = opts || {};
+  const { maskCustomEmojis, maskURLs } = opts || {};
   const { spoilerText, poll, emojis } = status;
   let { content } = status;
   if (maskCustomEmojis && emojis?.length) {
@@ -132,7 +135,19 @@ function getPostText(status, opts) {
   }
   return (
     (spoilerText ? `${spoilerText}\n\n` : '') +
-    getHTMLText(content) +
+    getHTMLText(content, {
+      preProcess:
+        maskURLs &&
+        ((dom) => {
+          // Remove links that contains text that starts with https?://
+          for (const a of dom.querySelectorAll('a')) {
+            const text = a.innerText.trim();
+            if (/^https?:\/\//i.test(text)) {
+              a.replaceWith('«🔗»');
+            }
+          }
+        }),
+    }) +
     getPollText(poll)
   );
 }
@@ -210,6 +225,161 @@ function getHTMLTextForDetectLang(content, emojis) {
 }
 
 const HTTP_REGEX = /^http/i;
+
+// Follow https://mathstodon.xyz/about
+// > You can use LaTeX in toots here! Use \( and \) for inline, and \[ and \] for display mode.
+const DELIMITERS_PATTERNS = [
+  // '\\$\\$[\\s\\S]*?\\$\\$', // $$...$$
+  '\\\\\\[[\\s\\S]*?\\\\\\]', // \[...\]
+  '\\\\\\([\\s\\S]*?\\\\\\)', // \(...\)
+  // '\\\\begin\\{(?:equation\\*?|align\\*?|alignat\\*?|gather\\*?|CD)\\}[\\s\\S]*?\\\\end\\{(?:equation\\*?|align\\*?|alignat\\*?|gather\\*?|CD)\\}', // AMS environments
+  // '\\\\(?:ref|eqref)\\{[^}]*\\}', // \ref{...}, \eqref{...}
+];
+const DELIMITERS_REGEX = new RegExp(DELIMITERS_PATTERNS.join('|'), 'g');
+
+function cleanDOMForTemml(dom) {
+  // Define start and end delimiter patterns
+  const START_DELIMITERS = ['\\\\\\[', '\\\\\\(']; // \[ and \(
+  const startRegex = new RegExp(`(${START_DELIMITERS.join('|')})`);
+
+  // Walk through all text nodes
+  const walker = document.createTreeWalker(dom, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    textNodes.push(node);
+  }
+
+  for (const textNode of textNodes) {
+    const text = textNode.textContent;
+    const startMatch = text.match(startRegex);
+
+    if (!startMatch) continue; // No start delimiter in this text node
+
+    // Find the matching end delimiter
+    const startDelimiter = startMatch[0];
+    const endDelimiter = startDelimiter === '\\[' ? '\\]' : '\\)';
+
+    // Collect nodes from start delimiter until end delimiter
+    const nodesToCombine = [textNode];
+    let currentNode = textNode;
+    let foundEnd = false;
+    let combinedText = text;
+
+    // Check if end delimiter is in the same text node
+    if (text.includes(endDelimiter)) {
+      foundEnd = true;
+    } else {
+      // Look through sibling nodes
+      while (currentNode.nextSibling && !foundEnd) {
+        const nextSibling = currentNode.nextSibling;
+
+        if (nextSibling.nodeType === Node.TEXT_NODE) {
+          nodesToCombine.push(nextSibling);
+          combinedText += nextSibling.textContent;
+          if (nextSibling.textContent.includes(endDelimiter)) {
+            foundEnd = true;
+          }
+        } else if (
+          nextSibling.nodeType === Node.ELEMENT_NODE &&
+          nextSibling.tagName === 'BR'
+        ) {
+          nodesToCombine.push(nextSibling);
+          combinedText += '\n';
+        } else {
+          // Found a non-BR element, stop and don't process
+          break;
+        }
+
+        currentNode = nextSibling;
+      }
+    }
+
+    // Only process if we found the end delimiter and have nodes to combine
+    if (foundEnd && nodesToCombine.length > 1) {
+      // Replace the first text node with combined text
+      textNode.textContent = combinedText;
+
+      // Remove the other nodes
+      for (let i = 1; i < nodesToCombine.length; i++) {
+        nodesToCombine[i].remove();
+      }
+    }
+  }
+}
+
+const MathBlock = ({ content, contentRef, onRevert }) => {
+  DELIMITERS_REGEX.lastIndex = 0; // Reset index to prevent g trap
+  const hasLatexContent = DELIMITERS_REGEX.test(content);
+
+  if (!hasLatexContent) return null;
+
+  const { t } = useLingui();
+  const [mathRendered, setMathRendered] = useState(false);
+  const toggleMathRendering = useCallback(
+    async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (mathRendered) {
+        // Revert to original content by refreshing PostContent
+        setMathRendered(false);
+        onRevert();
+      } else {
+        // Render math
+        try {
+          // This needs global because the codebase inside temml is calling a function from global.temml 🤦‍♂️
+          const temml =
+            window.temml || (window.temml = (await import('temml'))?.default);
+
+          cleanDOMForTemml(contentRef.current);
+          const originalContentRefHTML = contentRef.current.innerHTML;
+          temml.renderMathInElement(contentRef.current, {
+            fences: '(', // This should sync with DELIMITERS_REGEX
+            annotate: true,
+            throwOnError: true,
+            errorCallback: (err) => {
+              console.warn('Failed to render LaTeX:', err);
+            },
+          });
+
+          const hasMath = contentRef.current.querySelector('math.tml-display');
+          const htmlChanged =
+            contentRef.current.innerHTML !== originalContentRefHTML;
+          if (hasMath && htmlChanged) {
+            setMathRendered(true);
+          } else {
+            showToast(t`Unable to format math`);
+            setMathRendered(false);
+            onRevert(); // Revert because DOM modified by cleanDOMForTemml
+          }
+        } catch (e) {
+          console.error('Failed to LaTeX:', e);
+        }
+      }
+    },
+    [mathRendered],
+  );
+
+  return (
+    <div class="math-block">
+      <Icon icon="formula" size="s" /> <span>{t`Math expressions found.`}</span>{' '}
+      <button type="button" class="light small" onClick={toggleMathRendering}>
+        {mathRendered
+          ? t({
+              comment:
+                'Action to switch from rendered math back to raw (LaTeX) markup',
+              message: 'Show markup',
+            })
+          : t({
+              comment:
+                'Action to render math expressions from raw (LaTeX) markup',
+              message: 'Format math',
+            })}
+      </button>
+    </div>
+  );
+};
+
 const PostContent =
   /*memo(*/
   ({ post, instance, previewMode }) => {
@@ -344,15 +514,6 @@ const getCurrentAccID = mem(
   },
 );
 
-const getPrefs = mem(
-  () => {
-    return store.account.get('preferences') || {};
-  },
-  {
-    maxAge: 60 * 1000, // 1 minute
-  },
-);
-
 function Status({
   statusID,
   status,
@@ -376,7 +537,8 @@ function Status({
   showReplyParent,
   mediaFirst,
 }) {
-  const { _, t } = useLingui();
+  const { _, t, i18n } = useLingui();
+  const rtf = RTF(i18n.locale);
 
   if (skeleton) {
     return (
@@ -448,7 +610,7 @@ function Status({
     inReplyToAccountId,
     content,
     mentions,
-    mediaAttachments,
+    mediaAttachments = [],
     reblog,
     uri,
     url,
@@ -554,16 +716,14 @@ function Status({
     inReplyToAccountId === currentAccount ||
     mentions?.find((mention) => mention.id === currentAccount);
 
-  const readingExpandSpoilers = useMemo(() => {
-    const prefs = getPrefs();
-    return !!prefs['reading:expand:spoilers'];
-  }, []);
-  const readingExpandMedia = useMemo(() => {
-    // default | show_all | hide_all
-    // Ignore hide_all because it means hide *ALL* media including non-sensitive ones
-    const prefs = getPrefs();
-    return prefs['reading:expand:media']?.toLowerCase() || 'default';
-  }, []);
+  const prefs = getPreferences();
+  const readingExpandSpoilers = !!prefs['reading:expand:spoilers'];
+
+  // default | show_all | hide_all
+  // Ignore hide_all because it means hide *ALL* media including non-sensitive ones
+  const readingExpandMedia =
+    prefs['reading:expand:media']?.toLowerCase() || 'default';
+
   // FOR TESTING:
   // const readingExpandSpoilers = true;
   // const readingExpandMedia = 'show_all';
@@ -677,8 +837,8 @@ function Status({
       spoilerText ||
       sensitive ||
       poll ||
-      card ||
-      mediaAttachments?.length
+      card /*||
+      mediaAttachments?.length*/
     ) {
       return false;
     }
@@ -707,14 +867,19 @@ function Status({
   const mediaContainerRef = useTruncated();
 
   const statusRef = useRef(null);
+  const [reloadPostContentCount, reloadPostContent] = useReducer(
+    (c) => c + 1,
+    0,
+  );
 
   const unauthInteractionErrorMessage = t`Sorry, your current logged-in instance can't interact with this post from another instance.`;
 
   const textWeight = useCallback(
     () =>
       Math.max(
-        Math.round((spoilerText.length + htmlContentLength(content)) / 140) ||
-          1,
+        Math.round(
+          ((spoilerText?.length || 0) + htmlContentLength(content)) / 140,
+        ) || 1,
         1,
       ),
     [spoilerText, content],
@@ -951,12 +1116,14 @@ function Status({
         .$select(statusID)
         .rebloggedBy.list({
           limit: REACTIONS_LIMIT,
-        });
+        })
+        .values();
       favouriteIterator.current = masto.v1.statuses
         .$select(statusID)
         .favouritedBy.list({
           limit: REACTIONS_LIMIT,
-        });
+        })
+        .values();
     }
     const [{ value: reblogResults }, { value: favouriteResults }] =
       await Promise.allSettled([
@@ -1500,14 +1667,17 @@ function Status({
   const rRef = useHotkeys('r, shift+r', replyStatus, {
     enabled: hotkeysEnabled,
     useKey: true,
+    ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey,
   });
   const fRef = useHotkeys('f, l', favouriteStatusNotify, {
     enabled: hotkeysEnabled,
+    ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
     useKey: true,
   });
   const dRef = useHotkeys('d', bookmarkStatusNotify, {
     enabled: hotkeysEnabled,
     useKey: true,
+    ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
   });
   const bRef = useHotkeys(
     'shift+b',
@@ -1531,6 +1701,7 @@ function Status({
     {
       enabled: hotkeysEnabled && canBoost,
       useKey: true,
+      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey,
     },
   );
   const xRef = useHotkeys(
@@ -1559,6 +1730,7 @@ function Status({
     },
     {
       useKey: true,
+      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
     },
   );
 
@@ -2191,12 +2363,20 @@ function Status({
                     inert={!!spoilerText && !showSpoiler ? true : undefined}
                   >
                     <PostContent
+                      key={reloadPostContentCount}
                       post={status}
                       instance={instance}
                       previewMode={previewMode}
                     />
                     <QuoteStatuses id={id} instance={instance} level={quoted} />
                   </div>
+                )}
+                {!!content && (
+                  <MathBlock
+                    content={content}
+                    contentRef={contentRef}
+                    onRevert={reloadPostContent}
+                  />
                 )}
                 {!!poll && (
                   <Poll
@@ -2239,6 +2419,7 @@ function Status({
                     autoDetected={languageAutoDetected}
                     text={getPostText(status, {
                       maskCustomEmojis: true,
+                      maskURLs: true,
                     })}
                   />
                 )}
@@ -2287,7 +2468,7 @@ function Status({
                             media={media}
                             autoAnimate
                             showCaption
-                            allowLongerCaption={!content}
+                            allowLongerCaption={!content || isSizeLarge}
                             lang={language}
                             to={`/${instance}/s/${id}?${
                               withinContext ? 'media' : 'media-only'
@@ -2773,7 +2954,14 @@ function MediaFirstContainer(props) {
 // Mastodon links are "posts" too but they are converted to real quote posts and there's too many domains to check
 // This is just "Progressive Enhancement"
 function isCardPost(domain) {
-  return ['x.com', 'twitter.com', 'threads.net', 'bsky.app'].includes(domain);
+  return [
+    'x.com',
+    'twitter.com',
+    'threads.net',
+    'bsky.app',
+    'bsky.brid.gy',
+    'fed.brid.gy',
+  ].includes(domain);
 }
 
 function Byline({ authors, hidden, children }) {
@@ -3647,7 +3835,7 @@ function StatusCompact({ sKey }) {
 
   return (
     <article
-      class={`status compact-reply ${
+      class={`status compact-reply shazam ${
         visibility === 'direct' ? 'visibility-direct' : ''
       }`}
       tabindex="-1"
@@ -3861,6 +4049,22 @@ function FilteredStatus({
   );
 }
 
+const handledUnfulfilledStates = [
+  'deleted',
+  'unauthorized',
+  'pending',
+  'rejected',
+  'revoked',
+];
+const unfulfilledText = {
+  filterHidden: msg`Post hidden by your filters`,
+  deleted: msg`Post removed by author.`,
+  unauthorized: msg`You’re not authorized to view this post.`,
+  pending: msg`Post pending author approval.`,
+  rejected: msg`Quoting not allowed by the author.`,
+  revoked: msg`Quoting not allowed by the author.`,
+};
+
 const QuoteStatuses = memo(({ id, instance, level = 0 }) => {
   if (!id || !instance) return;
   const { _ } = useLingui();
@@ -3874,13 +4078,50 @@ const QuoteStatuses = memo(({ id, instance, level = 0 }) => {
   if (!uniqueQuotes?.length) return;
   if (level > 2) return;
 
+  const filterContext = useContext(FilterContext);
+  const currentAccount = getCurrentAccID();
+
   return uniqueQuotes.map((q) => {
+    let unfulfilledState;
+
+    const quoteStatus = snapStates.statuses[statusKey(q.id, q.instance)];
+    if (quoteStatus) {
+      const isSelf =
+        currentAccount && currentAccount === quoteStatus.account?.id;
+      const filterInfo =
+        !isSelf && isFiltered(quoteStatus.filtered, filterContext);
+
+      if (filterInfo?.action === 'hide') {
+        unfulfilledState = 'filterHidden';
+      }
+    }
+
+    if (!unfulfilledState) {
+      unfulfilledState = handledUnfulfilledStates.find(
+        (state) => q.state === state,
+      );
+    }
+
+    if (unfulfilledState) {
+      return (
+        <div
+          class={`status-card-unfulfilled ${
+            unfulfilledState === 'filterHidden' ? 'status-card-ghost' : ''
+          }`}
+        >
+          <Icon icon="quote" />
+          <i>{_(unfulfilledText[unfulfilledState])}</i>
+        </div>
+      );
+    }
+
+    const Parent = q.native ? Fragment : LazyShazam;
     return (
-      <LazyShazam id={q.instance + q.id}>
+      <Parent id={q.instance + q.id} key={q.instance + q.id}>
         <Link
           key={q.instance + q.id}
           to={`${q.instance ? `/${q.instance}` : ''}/s/${q.id}`}
-          class="status-card-link"
+          class={`status-card-link ${q.native ? 'quote-post-native' : ''}`}
           data-read-more={_(readMoreText)}
         >
           <Status
@@ -3891,7 +4132,7 @@ const QuoteStatuses = memo(({ id, instance, level = 0 }) => {
             enableCommentHint
           />
         </Link>
-      </LazyShazam>
+      </Parent>
     );
   });
 });

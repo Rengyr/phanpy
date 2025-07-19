@@ -26,10 +26,12 @@ function Mentions({ columnMode, ...props }) {
 
   async function fetchMentions(firstLoad) {
     if (firstLoad || !mentionsIterator.current) {
-      mentionsIterator.current = masto.v1.notifications.list({
-        limit: LIMIT,
-        types: ['mention'],
-      });
+      mentionsIterator.current = masto.v1.notifications
+        .list({
+          limit: LIMIT,
+          types: ['mention'],
+        })
+        .values();
     }
     const results = await mentionsIterator.current.next();
     let { value } = results;
@@ -56,9 +58,11 @@ function Mentions({ columnMode, ...props }) {
 
   async function fetchConversations(firstLoad) {
     if (firstLoad || !conversationsIterator.current) {
-      conversationsIterator.current = masto.v1.conversations.list({
-        limit: LIMIT,
-      });
+      conversationsIterator.current = masto.v1.conversations
+        .list({
+          limit: LIMIT,
+        })
+        .values();
     }
     let results;
     let statuses;
@@ -108,6 +112,7 @@ function Mentions({ columnMode, ...props }) {
             limit: 1,
             since_id: latestConversationItem.current,
           })
+          .values()
           .next();
         let { value } = results;
         console.log(
@@ -137,6 +142,7 @@ function Mentions({ columnMode, ...props }) {
             types: ['mention'],
             since_id: latestItem.current,
           })
+          .values()
           .next();
         let { value } = results;
         console.log('checkForUpdates ALL', latestItem.current, value);

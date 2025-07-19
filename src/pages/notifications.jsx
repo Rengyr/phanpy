@@ -41,7 +41,7 @@ import shortenNumber from '../utils/shorten-number';
 import showToast from '../utils/show-toast';
 import states, { saveStatus } from '../utils/states';
 import store from '../utils/store';
-import { getCurrentInstance } from '../utils/store-utils';
+import { getAPIVersions, getCurrentInstance } from '../utils/store-utils';
 import supports from '../utils/supports';
 import usePageVisibility from '../utils/usePageVisibility';
 import useScroll from '../utils/useScroll';
@@ -58,13 +58,13 @@ const scrollIntoViewOptions = {
 };
 
 const memSupportsGroupedNotifications = mem(
-  () => supports('@mastodon/grouped-notifications'),
+  () => getAPIVersions()?.mastodon >= 2,
   {
     maxAge: 1000 * 60 * 5, // 5 minutes
   },
 );
 
-export function mastoFetchNotifications(opts = {}) {
+function mastoFetchNotificationsIterable(opts = {}) {
   const { masto } = api();
   if (
     states.settings.groupedNotificationsAlpha &&
@@ -81,6 +81,9 @@ export function mastoFetchNotifications(opts = {}) {
       ...opts,
     });
   }
+}
+export function mastoFetchNotifications(opts = {}) {
+  return mastoFetchNotificationsIterable(opts).values();
 }
 
 export function getGroupedNotifications(notifications) {
@@ -131,14 +134,16 @@ function Notifications({ columnMode }) {
 
   console.debug('RENDER Notifications');
 
+  const notificationsIterable = useRef();
   const notificationsIterator = useRef();
   async function fetchNotifications(firstLoad) {
     let moreToLoad = false;
     if (firstLoad || !notificationsIterator.current) {
       // Reset iterator
-      notificationsIterator.current = mastoFetchNotifications({
+      notificationsIterable.current = mastoFetchNotificationsIterable({
         excludeTypes: ['follow_request'],
       });
+      notificationsIterator.current = notificationsIterable.current.values();
     }
     if (/max_id=($|&)/i.test(notificationsIterator.current?.nextParams)) {
       // Pixelfed returns next paginationed link with empty max_id
@@ -484,6 +489,7 @@ function Notifications({ columnMode }) {
     },
     {
       useKey: true,
+      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
     },
   );
 
@@ -520,6 +526,7 @@ function Notifications({ columnMode }) {
     },
     {
       useKey: true,
+      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
     },
   );
 
@@ -534,6 +541,7 @@ function Notifications({ columnMode }) {
     },
     {
       useKey: true,
+      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
     },
   );
 
