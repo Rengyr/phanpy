@@ -22,6 +22,7 @@ const {
   PHANPY_CLIENT_NAME: CLIENT_NAME,
   PHANPY_APP_ERROR_LOGGING: ERROR_LOGGING,
   PHANPY_REFERRER_POLICY: REFERRER_POLICY,
+  PHANPY_DISALLOW_ROBOTS: DISALLOW_ROBOTS,
   PHANPY_DEV,
 } = loadEnv('production', process.cwd(), allowedEnvPrefixes);
 
@@ -119,6 +120,15 @@ export default defineConfig({
           commitHash,
         },
       },
+      ...(DISALLOW_ROBOTS
+        ? [
+            {
+              type: 'raw',
+              output: './robots.txt',
+              data: 'User-agent: *\nDisallow: /',
+            },
+          ]
+        : []),
     ]),
     VitePWA({
       manifest: {
@@ -225,6 +235,29 @@ export default defineConfig({
                 }
               });
             }
+          },
+        },
+        {
+          name: 'remove-chunk-sourcemaps',
+          generateBundle(_, bundle) {
+            // Remove .js.map files and sourcemap references for specific chunks
+            Object.keys(bundle).forEach((fileName) => {
+              const shouldRemoveSourcemap =
+                fileName.includes('locales/') || fileName.includes('icons/');
+
+              if (fileName.endsWith('.js.map') && shouldRemoveSourcemap) {
+                delete bundle[fileName];
+              } else if (fileName.endsWith('.js') && shouldRemoveSourcemap) {
+                const chunk = bundle[fileName];
+                if (chunk.type === 'chunk' && chunk.code) {
+                  // Remove sourceMappingURL comment
+                  chunk.code = chunk.code.replace(
+                    /\/\/# sourceMappingURL=.+\.js\.map\n?$/,
+                    '',
+                  );
+                }
+              }
+            });
           },
         },
       ],
