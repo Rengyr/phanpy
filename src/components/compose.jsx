@@ -2066,4 +2066,13 @@ function Compose({
   );
 }
 
+function removeNullUndefined(obj) {
+  for (let key in obj) {
+    if (obj[key] === null || obj[key] === undefined) {
+      delete obj[key];
+    }
+  }
+  return obj;
+}
+
 export default Compose;

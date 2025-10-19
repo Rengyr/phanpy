@@ -176,7 +176,7 @@ const Textarea = forwardRef((props, ref) => {
         autoCorrect="on"
         spellCheck="true"
         dir="auto"
-        rows="6"
+        rows="10"
         cols="50"
         {...textareaProps}
         ref={ref}
