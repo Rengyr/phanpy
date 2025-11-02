@@ -492,10 +492,6 @@ msgstr "Replying to @{0}’s post"
 msgid "Editing source post"
 msgstr "Editing source post"
 
-#: src/components/compose.jsx:1194
-msgid "Poll must have at least 2 options"
-msgstr "Poll must have at least 2 options"
-
 #: src/components/compose.jsx:1198
 msgid "Some poll choices are empty"
 msgstr "Some poll choices are empty"

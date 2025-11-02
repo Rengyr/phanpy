@@ -1190,10 +1190,10 @@ function Compose({
           }
           */
             if (poll) {
-              if (poll.options.length < 2) {
-                alert(t`Poll must have at least 2 options`);
-                return;
-              }
+              // if (poll.options.length < 2) {
+              //   alert(t`Poll must have at least 2 options`);
+              //   return;
+              // }
               if (poll.options.some((option) => option === '')) {
                 alert(t`Some poll choices are empty`);
                 return;
