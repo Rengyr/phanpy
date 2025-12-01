@@ -17,7 +17,6 @@ function Mentions({ columnMode, ...props }) {
   const { masto, instance } = api();
   const [searchParams] = columnMode ? [emptySearchParams] : useSearchParams();
   const [stateType, setStateType] = useState(null);
-  const [conversationsImplemented, setConversationsImplemented] = useState(true);
   const type = props?.type || searchParams.get('type') || stateType;
   useTitle(type === 'private' ? t`Private mentions` : t`Mentions`, '/mentions');
 
@@ -49,7 +48,7 @@ function Mentions({ columnMode, ...props }) {
     }
     return {
       ...results,
-      value: value?.filter(item => item.type == "mention").map((item) => item.status), // GoToSocial returns even non-mentions types
+      value: value?.map((item) => item.status),
     };
   }
 
@@ -64,33 +63,22 @@ function Mentions({ columnMode, ...props }) {
         })
         .values();
     }
-    let results;
-    let statuses;
-    try {
-      results = await conversationsIterator.current.next();
-      let { value } = results;
-      if (firstLoad && value?.length) {
+    const results = await conversationsIterator.current.next();
+    let { value } = results;
+    value = value?.filter((item) => item.lastStatus);
+    if (value?.length) {
+      if (firstLoad) {
         latestConversationItem.current = value[0].lastStatus.id;
-        console.log('First load backupApi', latestConversationItem.current);
+        console.log('First load', latestConversationItem.current);
       }
-      statuses = value?.filter((item) => item.lastStatus && item.type == "mention").map((item) => item.lastStatus);
-      setConversationsImplemented(true);
-    }
-    catch (e)
-    {
-      // Not supported api
-      setConversationsImplemented(false);
-      return {...true, value:[]};
-    }
-    if (statuses?.length) {
-      statuses.forEach((status) => {
-        saveStatus(status, instance);
+      value.forEach(({ lastStatus: item }) => {
+        saveStatus(item, instance);
       });
     }
     console.log('results', results);
     return {
       ...results,
-      value: statuses,
+      value: value?.map((item) => item.lastStatus),
     };
   }
 
@@ -103,9 +91,6 @@ function Mentions({ columnMode, ...props }) {
 
   async function checkForUpdates() {
     if (type === 'private') {
-      if (!conversationsImplemented){
-        return false;
-      }
       try {
         const results = await masto.v1.conversations
           .list({
@@ -124,11 +109,7 @@ function Mentions({ columnMode, ...props }) {
           value[0]?.id === latestConversationItem.current; // since_id might not be supported
         if (value?.length && !valueContainsLatestItem) {
           latestConversationItem.current = value[0].lastStatus.id;
-          value = value?.filter((item) => item.lastStatus && item.type == "mention");
-          if (value?.length)
-          {
-            return true;
-          }
+          return true;
         }
         return false;
       } catch (e) {
@@ -148,11 +129,7 @@ function Mentions({ columnMode, ...props }) {
         console.log('checkForUpdates ALL', latestItem.current, value);
         if (value?.length) {
           latestItem.current = value[0].id;
-          value = value?.filter((item) => item.type == "mention");
-          if (value?.length)
-          {
-            return true;
-          }
+          return true;
         }
         return false;
       } catch (e) {
@@ -192,40 +169,21 @@ function Mentions({ columnMode, ...props }) {
     );
   }, [type]);
 
-  if (!conversationsImplemented && type === 'private') {
-    return (
-      <Timeline
-        title="Mentions"
-        id="mentions"
-        emptyText="Conversation API is not implemented by this instance."
-        errorText="Unable to load mentions."
-        instance={instance}
-        fetchItems={fetchItems}
-        checkForUpdates={checkForUpdates}
-        useItemID
-        timelineStart={TimelineStart}
-        refresh={type}
-        filterContext="notifications"
-      />
-    );
-  }
-  else {
-    return (
-      <Timeline
-        title={t`Mentions`}
-        id="mentions"
-        emptyText={t`No one mentioned you :(`}
-        errorText={t`Unable to load mentions.`}
-        instance={instance}
-        fetchItems={fetchItems}
-        checkForUpdates={checkForUpdates}
-        useItemID
-        timelineStart={TimelineStart}
-        refresh={type}
-        filterContext="notifications"
-      />
-    );
-  }
+  return (
+    <Timeline
+      title={t`Mentions`}
+      id="mentions"
+      emptyText={t`No one mentioned you :(`}
+      errorText={t`Unable to load mentions.`}
+      instance={instance}
+      fetchItems={fetchItems}
+      checkForUpdates={checkForUpdates}
+      useItemID
+      timelineStart={TimelineStart}
+      refresh={type}
+      filterContext="notifications"
+    />
+  );
 }
 
 export default Mentions;

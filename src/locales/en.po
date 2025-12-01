@@ -1281,8 +1281,8 @@ msgstr "Catch-up"
 #: src/components/shortcuts-settings.jsx:58
 #: src/components/shortcuts-settings.jsx:146
 #: src/pages/home.jsx:240
-#: src/pages/mentions.jsx:22
-#: src/pages/mentions.jsx:215
+#: src/pages/mentions.jsx:21
+#: src/pages/mentions.jsx:174
 #: src/pages/settings.jsx:1266
 #: src/pages/trending.jsx:384
 msgid "Mentions"
@@ -3176,7 +3176,7 @@ msgid "Shared by {0}"
 msgstr "Shared by {0}"
 
 #: src/pages/catchup.jsx:1335
-#: src/pages/mentions.jsx:177
+#: src/pages/mentions.jsx:154
 #: src/pages/search.jsx:330
 msgid "All"
 msgstr "All"
@@ -3597,19 +3597,19 @@ msgstr "Continue"
 msgid "Don't have an account? Create one!"
 msgstr "Don't have an account? Create one!"
 
-#: src/pages/mentions.jsx:22
+#: src/pages/mentions.jsx:21
 msgid "Private mentions"
 msgstr "Private mentions"
 
-#: src/pages/mentions.jsx:189
+#: src/pages/mentions.jsx:166
 msgid "Private"
 msgstr "Private"
 
-#: src/pages/mentions.jsx:217
+#: src/pages/mentions.jsx:176
 msgid "No one mentioned you :("
 msgstr "No one mentioned you :("
 
-#: src/pages/mentions.jsx:218
+#: src/pages/mentions.jsx:177
 msgid "Unable to load mentions."
 msgstr "Unable to load mentions."
 

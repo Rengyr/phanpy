@@ -451,7 +451,7 @@ function Settings({ onClose }) {
               </label>
             </li>
             {!!TRANSLANG_INSTANCES && (
-            <li>
+            <li class="block">
                 <label>
                   <input
                     type="checkbox"
