@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.pnpm-store
 
 # Editor directories and files
 .vscode/*
@@ -39,3 +40,6 @@ src/locales/*.js
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Generated mock screenshots
+/mock-screenshots/

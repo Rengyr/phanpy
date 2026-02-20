@@ -27,6 +27,7 @@ import AsyncText from './AsyncText';
 import Icon from './icon';
 import MenuConfirm from './menu-confirm';
 import Modal from './modal';
+import { mediaDevicesSupported } from './qr-code-modal';
 
 export const SHORTCUTS_LIMIT = 9;
 
@@ -72,7 +73,7 @@ const TYPE_PARAMS = {
       type: 'checkbox',
     },
     {
-      text: msg`Instance`,
+      text: msg`Server`,
       name: 'instance',
       type: 'text',
       placeholder: msg`Optional, e.g. mastodon.social`,
@@ -81,7 +82,7 @@ const TYPE_PARAMS = {
   ],
   trending: [
     {
-      text: msg`Instance`,
+      text: msg`Server`,
       name: 'instance',
       type: 'text',
       placeholder: msg`Optional, e.g. mastodon.social`,
@@ -119,7 +120,7 @@ const TYPE_PARAMS = {
       type: 'checkbox',
     },
     {
-      text: msg`Instance`,
+      text: msg`Server`,
       name: 'instance',
       type: 'text',
       placeholder: msg`Optional, e.g. mastodon.social`,
@@ -757,6 +758,7 @@ function ImportExport({ shortcuts, onClose }) {
       // Very basic validation, I know
       if (!Array.isArray(parsed)) throw new Error('Not an array');
       setImportUIState('default');
+      console.log('⚡ Parsed imported shortcuts', parsed);
       return parsed;
     } catch (err) {
       // Fallback to JSON string parsing
@@ -810,6 +812,27 @@ function ImportExport({ shortcuts, onClose }) {
               }}
               dir="auto"
             />
+            {mediaDevicesSupported && (
+              <button
+                type="button"
+                class="plain2 small"
+                onClick={() => {
+                  states.showQrScannerModal = {
+                    onClose: ({ text } = {}) => {
+                      if (text) {
+                        setImportShortcutStr(text);
+                        shortcutsImportFieldRef.current.value = text;
+                        shortcutsImportFieldRef.current.dispatchEvent(
+                          new Event('input'),
+                        );
+                      }
+                    },
+                  };
+                }}
+              >
+                <Icon icon="scan" alt={t`Scan QR code`} />
+              </button>
+            )}
             {states.settings.shortcutSettingsCloudImportExport && (
               <button
                 type="button"
@@ -818,9 +841,7 @@ function ImportExport({ shortcuts, onClose }) {
                 onClick={async () => {
                   setImportUIState('cloud-downloading');
                   const currentAccount = getCurrentAccountID();
-                  showToast(
-                    t`Downloading saved shortcuts from instance server…`,
-                  );
+                  showToast(t`Downloading saved shortcuts from server…`);
                   try {
                     const relationships =
                       await masto.v1.accounts.relationships.fetch({
@@ -851,10 +872,10 @@ function ImportExport({ shortcuts, onClose }) {
                     showToast(t`Unable to download shortcuts`);
                   }
                 }}
-                title={t`Download shortcuts from instance server`}
+                title={t`Download shortcuts from server`}
               >
                 <Icon icon="cloud" />
-                <Icon icon="arrow-down" />
+                <Icon icon="arrow-down" size="s" />
               </button>
             )}
           </p>
@@ -875,9 +896,18 @@ function ImportExport({ shortcuts, onClose }) {
                         style={{
                           opacity: shortcuts.some((s) =>
                             // Compare all properties
-                            Object.keys(s).every(
-                              (key) => s[key] === shortcut[key],
-                            ),
+                            Object.keys(s).every((key) => {
+                              if (!(key in shortcut)) return true;
+                              const val = shortcut[key];
+                              if (
+                                val === '' ||
+                                val === null ||
+                                val === undefined
+                              ) {
+                                return true;
+                              }
+                              return s[key] === val;
+                            }),
                           )
                             ? 1
                             : 0,
@@ -887,13 +917,13 @@ function ImportExport({ shortcuts, onClose }) {
                       </span>
                       <span>
                         {_(TYPE_TEXT[shortcut.type])}
-                        {shortcut.type === 'list' && ' ⚠️'}{' '}
+                        {shortcut.type === 'list' && !!shortcut.id && ' ⚠️'}{' '}
                         {TYPE_PARAMS[shortcut.type]?.map?.(
                           ({ text, name, type }) =>
                             shortcut[name] ? (
                               <>
                                 <span class="tag collapsed insignificant">
-                                  {text}:{' '}
+                                  {_(text)}:{' '}
                                   {type === 'checkbox'
                                     ? shortcut[name] === 'on'
                                       ? '✅'
@@ -1018,7 +1048,7 @@ function ImportExport({ shortcuts, onClose }) {
               <Trans>Export</Trans>
             </span>
           </h3>
-          <p>
+          <p class="field-button">
             <input
               style={{ width: '100%' }}
               type="text"
@@ -1038,6 +1068,74 @@ function ImportExport({ shortcuts, onClose }) {
               }}
               dir="auto"
             />
+            <button
+              type="button"
+              class="plain2 small"
+              disabled={!shortcutsStr}
+              onClick={() => {
+                states.showQrCodeModal = {
+                  text: shortcutsStr,
+                };
+              }}
+            >
+              <Icon icon="qrcode" alt={t`QR code`} />
+            </button>
+            {states.settings.shortcutSettingsCloudImportExport && (
+              <button
+                type="button"
+                class="plain2 small"
+                disabled={importUIState === 'cloud-uploading'}
+                onClick={async () => {
+                  setImportUIState('cloud-uploading');
+                  const currentAccount = getCurrentAccountID();
+                  try {
+                    const relationships =
+                      await masto.v1.accounts.relationships.fetch({
+                        id: [currentAccount],
+                      });
+                    const relationship = relationships[0];
+                    if (relationship) {
+                      const { note = '' } = relationship;
+                      // const newNote = `${note}\n\n\n$<phanpy-shortcuts-settings>{shortcutsStr}</phanpy-shortcuts-settings>`;
+                      let newNote = '';
+                      const settingsJSON = JSON.stringify({
+                        v: '1', // version
+                        dt: Date.now(), // datetime stamp
+                        data: shortcutsStr, // shortcuts settings string
+                      });
+                      if (
+                        /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/.test(
+                          note,
+                        )
+                      ) {
+                        newNote = note.replace(
+                          /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/,
+                          `<phanpy-shortcuts-settings>${settingsJSON}</phanpy-shortcuts-settings>`,
+                        );
+                      } else {
+                        newNote = `${note}\n\n\n<phanpy-shortcuts-settings>${settingsJSON}</phanpy-shortcuts-settings>`;
+                      }
+                      showToast(t`Saving shortcuts to server…`);
+                      await masto.v1.accounts
+                        .$select(currentAccount)
+                        .note.create({
+                          comment: newNote,
+                        });
+                      setImportUIState('default');
+                      showToast(t`Shortcuts saved`);
+                    }
+                  } catch (e) {
+                    console.error(e);
+                    setImportUIState('error');
+                    showToast(t`Unable to save shortcuts`);
+                  }
+                }}
+                title={t`Sync to server`}
+              >
+                <Icon icon="cloud" />
+                <Icon icon="arrow-up" size="s" />
+              </button>
+            )}
           </p>
           <p>
             <button
@@ -1084,62 +1182,6 @@ function ImportExport({ shortcuts, onClose }) {
                   </span>
                 </button>
               )}{' '}
-            {states.settings.shortcutSettingsCloudImportExport && (
-              <button
-                type="button"
-                class="plain2"
-                disabled={importUIState === 'cloud-uploading'}
-                onClick={async () => {
-                  setImportUIState('cloud-uploading');
-                  const currentAccount = getCurrentAccountID();
-                  try {
-                    const relationships =
-                      await masto.v1.accounts.relationships.fetch({
-                        id: [currentAccount],
-                      });
-                    const relationship = relationships[0];
-                    if (relationship) {
-                      const { note = '' } = relationship;
-                      // const newNote = `${note}\n\n\n$<phanpy-shortcuts-settings>{shortcutsStr}</phanpy-shortcuts-settings>`;
-                      let newNote = '';
-                      const settingsJSON = JSON.stringify({
-                        v: '1', // version
-                        dt: Date.now(), // datetime stamp
-                        data: shortcutsStr, // shortcuts settings string
-                      });
-                      if (
-                        /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/.test(
-                          note,
-                        )
-                      ) {
-                        newNote = note.replace(
-                          /<phanpy-shortcuts-settings>(.*)<\/phanpy-shortcuts-settings>/,
-                          `<phanpy-shortcuts-settings>${settingsJSON}</phanpy-shortcuts-settings>`,
-                        );
-                      } else {
-                        newNote = `${note}\n\n\n<phanpy-shortcuts-settings>${settingsJSON}</phanpy-shortcuts-settings>`;
-                      }
-                      showToast(t`Saving shortcuts to instance server…`);
-                      await masto.v1.accounts
-                        .$select(currentAccount)
-                        .note.create({
-                          comment: newNote,
-                        });
-                      setImportUIState('default');
-                      showToast(t`Shortcuts saved`);
-                    }
-                  } catch (e) {
-                    console.error(e);
-                    setImportUIState('error');
-                    showToast(t`Unable to save shortcuts`);
-                  }
-                }}
-                title={t`Sync to instance server`}
-              >
-                <Icon icon="cloud" />
-                <Icon icon="arrow-up" />
-              </button>
-            )}{' '}
             {shortcutsStr.length > 0 && (
               <small class="insignificant ib">
                 <Plural
@@ -1168,8 +1210,7 @@ function ImportExport({ shortcuts, onClose }) {
             <p>
               <Icon icon="cloud" />{' '}
               <Trans>
-                Import/export settings from/to instance server (Very
-                experimental)
+                Import/export settings from/to server (Very experimental)
               </Trans>
             </p>
           </footer>

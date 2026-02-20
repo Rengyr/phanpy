@@ -3,12 +3,16 @@ import './welcome.css';
 import { Trans, useLingui } from '@lingui/react/macro';
 
 import boostsCarouselUrl from '../assets/features/boosts-carousel.jpg';
-import groupedNotificationsUrl from '../assets/features/grouped-notifications.jpg';
+import catchupUrl from '../assets/features/catch-up.png';
 import multiColumnUrl from '../assets/features/multi-column.jpg';
 import multiHashtagTimelineUrl from '../assets/features/multi-hashtag-timeline.jpg';
 import nestedCommentsThreadUrl from '../assets/features/nested-comments-thread.jpg';
 import logo from '../assets/logo.svg';
-import logoText from '../assets/logo-text.svg';
+import logoText from '../assets/logo-text-2.svg';
+import homeMobileDark from '../assets/screenshots/home-mobile-dark@2x.png';
+import homeMobileLight from '../assets/screenshots/home-mobile-light@2x.png';
+import homeTabletDark from '../assets/screenshots/home-tablet-dark@2x.png';
+import homeTabletLight from '../assets/screenshots/home-tablet-light@2x.png';
 
 import LangSelector from '../components/lang-selector';
 import Link from '../components/link';
@@ -24,8 +28,11 @@ const {
 const appSite = WEBSITE
   ? WEBSITE.replace(/https?:\/\//g, '').replace(/\/$/, '')
   : null;
-const appVersion = __BUILD_TIME__
-  ? `${__BUILD_TIME__.slice(0, 10).replace(/-/g, '.')}${
+const sameSite = WEBSITE
+  ? WEBSITE.toLowerCase().includes(location.hostname)
+  : false;
+const appVersion = __COMMIT_TIME__
+  ? `${__COMMIT_TIME__.slice(0, 10).replace(/-/g, '.')}${
       __COMMIT_HASH__ ? `.${__COMMIT_HASH__}` : ''
     }`
   : null;
@@ -38,17 +45,8 @@ function Welcome() {
       <div class="hero-container">
         <div class="hero-content">
           <h1>
-            <img
-              src={logo}
-              alt=""
-              width="160"
-              height="160"
-              style={{
-                aspectRatio: '1/1',
-                marginBlockEnd: -16,
-              }}
-            />
-            <img src={logoText} alt="Phanpy" width="200" />
+            <img src={logo} alt="" width="100" height="100" />
+            <img src={logoText} alt="Phanpy" width="180" height="52" />
           </h1>
           <p class="desc">
             <Trans>A minimalistic opinionated Mastodon web client.</Trans>
@@ -60,7 +58,7 @@ function Welcome() {
                   ? `/login?instance=${DEFAULT_INSTANCE}&submit=1`
                   : '/login'
               }
-              class="button"
+              class="button plain6"
             >
               {DEFAULT_INSTANCE ? t`Log in` : t`Log in with Mastodon`}
             </Link>
@@ -84,10 +82,148 @@ function Welcome() {
             </p>
           )}
         </div>
+      </div>
+      <div id="device-showcase">
+        <div class="device mobile">
+          <div class="device-frame">
+            <picture>
+              <source
+                srcSet={homeMobileDark}
+                media="(prefers-color-scheme: dark)"
+              />
+              <img
+                src={homeMobileLight}
+                alt={t`Screenshot of Phanpy home timeline on mobile device`}
+                width="375"
+                height="812"
+                loading="lazy"
+              />
+            </picture>
+          </div>
+        </div>
+        <div class="device tablet">
+          <div class="device-frame">
+            <picture>
+              <source
+                srcSet={homeTabletDark}
+                media="(prefers-color-scheme: dark)"
+              />
+              <img
+                src={homeTabletLight}
+                alt={t`Screenshot of Phanpy home timeline on tablet device`}
+                width="768"
+                height="1024"
+                loading="lazy"
+              />
+            </picture>
+          </div>
+        </div>
+      </div>
+      <div id="why-container">
+        <div class="sections">
+          <section>
+            <img
+              src={boostsCarouselUrl}
+              alt={t`Screenshot of Boosts Carousel`}
+              width="400"
+              height="303"
+              loading="lazy"
+            />
+            <div>
+              <h4>
+                <Trans>Boosts Carousel</Trans>
+              </h4>
+              <p>
+                <Trans>
+                  Visually separate original posts and re-shared posts (boosted
+                  posts).
+                </Trans>
+              </p>
+            </div>
+          </section>
+          <section>
+            <img
+              src={catchupUrl}
+              alt={t`Screenshot of Catch-up`}
+              width="600"
+              height="450"
+              loading="lazy"
+            />
+            <div>
+              <h4>
+                <Trans>Catch-up</Trans>
+              </h4>
+              <p>
+                <Trans>
+                  A separate timeline for followings. Email-inspired interface
+                  to sort and filter posts.
+                </Trans>
+              </p>
+            </div>
+          </section>
+          <section>
+            <img
+              src={nestedCommentsThreadUrl}
+              alt={t`Screenshot of nested comments thread`}
+              width="400"
+              height="474"
+              loading="lazy"
+            />
+            <div>
+              <h4>
+                <Trans>Nested comments thread</Trans>
+              </h4>
+              <p>
+                <Trans>
+                  Effortlessly follow conversations. Semi-collapsible replies.
+                </Trans>
+              </p>
+            </div>
+          </section>
+          <section>
+            <img
+              src={multiColumnUrl}
+              alt={t`Screenshot of multi-column UI`}
+              width="400"
+              height="209"
+              loading="lazy"
+            />
+            <div>
+              <h4>
+                <Trans>Single or multi-column</Trans>
+              </h4>
+              <p>
+                <Trans>
+                  By default, single column for zen-mode seekers. Configurable
+                  multi-column for power users.
+                </Trans>
+              </p>
+            </div>
+          </section>
+          <section>
+            <img
+              src={multiHashtagTimelineUrl}
+              alt={t`Screenshot of multi-hashtag timeline with a form to add more hashtags`}
+              width="400"
+              height="196"
+              loading="lazy"
+            />
+            <div>
+              <h4>
+                <Trans>Multi-hashtag timeline</Trans>
+              </h4>
+              <p>
+                <Trans>Up to 5 hashtags combined into a single timeline.</Trans>
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+      <footer>
         {(appSite || appVersion) && (
           <p class="app-site-version">
             <small>
-              {appSite} {appVersion}
+              {sameSite ? appSite : ''} {appVersion}
             </small>
           </p>
         )}
@@ -117,87 +253,7 @@ function Welcome() {
         <div>
           <LangSelector />
         </div>
-      </div>
-      <div id="why-container">
-        <div class="sections">
-          <section>
-            <img
-              src={boostsCarouselUrl}
-              alt={t`Screenshot of Boosts Carousel`}
-              loading="lazy"
-            />
-            <h4>
-              <Trans>Boosts Carousel</Trans>
-            </h4>
-            <p>
-              <Trans>
-                Visually separate original posts and re-shared posts (boosted
-                posts).
-              </Trans>
-            </p>
-          </section>
-          <section>
-            <img
-              src={nestedCommentsThreadUrl}
-              alt={t`Screenshot of nested comments thread`}
-              loading="lazy"
-            />
-            <h4>
-              <Trans>Nested comments thread</Trans>
-            </h4>
-            <p>
-              <Trans>
-                Effortlessly follow conversations. Semi-collapsible replies.
-              </Trans>
-            </p>
-          </section>
-          <section>
-            <img
-              src={groupedNotificationsUrl}
-              alt={t`Screenshot of grouped notifications`}
-              loading="lazy"
-            />
-            <h4>
-              <Trans>Grouped notifications</Trans>
-            </h4>
-            <p>
-              <Trans>
-                Similar notifications are grouped and collapsed to reduce
-                clutter.
-              </Trans>
-            </p>
-          </section>
-          <section>
-            <img
-              src={multiColumnUrl}
-              alt={t`Screenshot of multi-column UI`}
-              loading="lazy"
-            />
-            <h4>
-              <Trans>Single or multi-column</Trans>
-            </h4>
-            <p>
-              <Trans>
-                By default, single column for zen-mode seekers. Configurable
-                multi-column for power users.
-              </Trans>
-            </p>
-          </section>
-          <section>
-            <img
-              src={multiHashtagTimelineUrl}
-              alt={t`Screenshot of multi-hashtag timeline with a form to add more hashtags`}
-              loading="lazy"
-            />
-            <h4>
-              <Trans>Multi-hashtag timeline</Trans>
-            </h4>
-            <p>
-              <Trans>Up to 5 hashtags combined into a single timeline.</Trans>
-            </p>
-          </section>
-        </div>
-      </div>
+      </footer>
     </main>
   );
 }

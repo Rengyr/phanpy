@@ -3,18 +3,23 @@ import './app.css';
 import { useLingui } from '@lingui/react';
 import debounce from 'just-debounce-it';
 import { lazy, memo, Suspense } from 'preact/compat';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'preact/hooks';
-import { matchPath, Route, Routes, useLocation } from 'react-router-dom';
+  matchPath,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from 'react-router-dom';
 
 import 'swiped-events';
 
 import { subscribe } from 'valtio';
+import { unstable_enableOp } from 'valtio/vanilla';
+
+// https://github.com/pmndrs/valtio/releases/tag/v2.3.0
+// Necessary for subscribe() to work properly
+unstable_enableOp(true);
 
 import BackgroundService from './components/background-service';
 import ComposeButton from './components/compose-button';
@@ -22,6 +27,7 @@ import { ICONS } from './components/ICONS';
 import KeyboardShortcutsHelp from './components/keyboard-shortcuts-help';
 import Loader from './components/loader';
 import Modals from './components/modals';
+import NavigationCommand from './components/navigation-command';
 import NotificationService from './components/notification-service';
 import SearchCommand from './components/search-command';
 import Shortcuts from './components/shortcuts';
@@ -58,8 +64,9 @@ import {
   initPreferences,
 } from './utils/api';
 import { getAccessToken } from './utils/auth';
+import { AuthProvider, useAuth } from './utils/auth-context';
 import focusDeck from './utils/focus-deck';
-import states, { initStates, statusKey } from './utils/states';
+import states, { hideAllModals, initStates, statusKey } from './utils/states';
 import store from './utils/store';
 import {
   getAccount,
@@ -76,6 +83,26 @@ const Sandbox =
   import.meta.env.DEV || import.meta.env.PHANPY_DEV
     ? lazy(() => import('./pages/sandbox'))
     : () => null;
+
+// Lazy load MockHome component only in development (not PHANPY_DEV)
+const MockHome = lazy(() => import('./pages/mock-home'));
+
+// Lazy load YearInPosts component
+const YearInPosts = lazy(() => import('./pages/year-in-posts'));
+
+// QR Scan Test component for development
+function QrScanTest() {
+  useEffect(() => {
+    states.showQrScannerModal = {
+      onClose: ({ text } = {}) => {
+        hideAllModals();
+        location.hash = text ? `/${text}` : '/';
+      },
+    };
+  }, []);
+
+  return null;
+}
 
 window.__STATES__ = states;
 window.__STATES_STATS__ = () => {
@@ -368,8 +395,17 @@ if (import.meta.env.DEV) {
   );
 }
 
+// const isPWA = true; // testing
+const isPWA =
+  window.matchMedia('(display-mode: standalone)').matches ||
+  window.navigator.standalone === true;
+const PATH_RESTORE_TIME_LIMIT = 1 * 60 * 60 * 1000; // 1 hour, should be good enough
+
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    const account = getCurrentAccount();
+    return !!account;
+  });
   const [uiState, setUIState] = useState('loading');
   __BENCHMARK.start('app-init');
   __BENCHMARK.start('time-to-following');
@@ -385,6 +421,28 @@ function App() {
 
     if (code) {
       console.log({ code });
+
+      const isPopup = window.opener && !window.opener.closed;
+
+      if (isPopup) {
+        try {
+          window.opener.postMessage(
+            {
+              type: 'oauth-callback',
+              code: code,
+            },
+            window.location.origin,
+          );
+          setTimeout(() => {
+            window.close();
+          }, 100);
+        } catch (e) {
+          console.error('Failed to send message to parent window:', e);
+          window.close();
+        }
+        return;
+      }
+
       // Clear the code from the URL
       window.history.replaceState(
         {},
@@ -422,6 +480,13 @@ function App() {
 
           setIsLoggedIn(true);
           setUIState('default');
+
+          // Redirect after successful login
+          const redirectPath = store.session.get('loginRedirect');
+          if (redirectPath) {
+            store.session.del('loginRedirect');
+            window.location.hash = redirectPath;
+          }
         } else {
           setUIState('error');
         }
@@ -494,6 +559,47 @@ function App() {
 
   useEffect(focusDeck, [location, isLoggedIn]);
 
+  // Save last page for PWA restoration
+  const restoredRef = useRef(false);
+  const lastPathKey = 'pwaLastPath';
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    // console.log('location.pathname', location.pathname);
+    if (isPWA && isLoggedIn) {
+      if (isRootPath(location.pathname)) {
+        store.local.del(lastPathKey);
+      } else {
+        store.local.setJSON(lastPathKey, {
+          path: location.pathname + location.search,
+          lastAccessed: Date.now(),
+        });
+      }
+    }
+  }, [location.pathname, location.search, isLoggedIn]);
+
+  // Restore last page on PWA reopen
+  useEffect(() => {
+    if (restoredRef.current) return;
+    const isRootPath = !location.pathname || location.pathname === '/';
+    if (!isRootPath) return;
+    if (isPWA && isLoggedIn && uiState === 'default') {
+      const lastPath = store.local.getJSON(lastPathKey);
+      if (lastPath) {
+        setTimeout(() => {
+          if (lastPath?.path) {
+            const timeSinceLastAccess =
+              Date.now() - (lastPath.lastAccessed || 0);
+            if (timeSinceLastAccess < PATH_RESTORE_TIME_LIMIT) {
+              window.location.hash = lastPath.path;
+            }
+          }
+          store.local.del(lastPathKey);
+        }, 300);
+      }
+      restoredRef.current = true;
+    }
+  }, [uiState, isLoggedIn]);
+
   if (/\/https?:/.test(location.pathname)) {
     return <HttpRoute />;
   }
@@ -503,9 +609,9 @@ function App() {
   }
 
   return (
-    <>
-      <PrimaryRoutes isLoggedIn={isLoggedIn} />
-      <SecondaryRoutes isLoggedIn={isLoggedIn} />
+    <AuthProvider value={isLoggedIn}>
+      <PrimaryRoutes />
+      <SecondaryRoutes />
       <Routes>
         <Route path="/:instance?/s/:id" element={<StatusRoute />} />
       </Routes>
@@ -513,50 +619,80 @@ function App() {
       {isLoggedIn && <Shortcuts />}
       <Modals />
       {isLoggedIn && <NotificationService />}
-      <BackgroundService isLoggedIn={isLoggedIn} />
+      <BackgroundService />
+      {isLoggedIn && <NavigationCommand />}
       <SearchCommand onClose={focusDeck} />
       <KeyboardShortcutsHelp />
-    </>
+    </AuthProvider>
   );
 }
 
-function Root({ isLoggedIn }) {
+function Root() {
+  const isLoggedIn = useAuth();
   if (isLoggedIn) {
     __BENCHMARK.end('time-to-isLoggedIn');
   }
   return isLoggedIn ? <Home /> : <Welcome />;
 }
 
-const PrimaryRoutes = memo(({ isLoggedIn }) => {
+function isRootPath(pathname) {
+  return /^\/(login|welcome|_sandbox|_qr-scan|_mock)/i.test(pathname);
+}
+
+const PrimaryRoutes = memo(() => {
   const location = useLocation();
   const nonRootLocation = useMemo(() => {
     const { pathname } = location;
-    return !/^\/(login|welcome|_sandbox)/i.test(pathname);
+    return !isRootPath(pathname);
   }, [location]);
 
   return (
     <Routes location={nonRootLocation || location}>
-      <Route path="/" element={<Root isLoggedIn={isLoggedIn} />} />
+      <Route path="/" element={<Root />} />
       <Route path="/login" element={<Login />} />
       <Route path="/welcome" element={<Welcome />} />
+      <Route
+        path="/_mock/home"
+        element={
+          <Suspense>
+            <MockHome />
+          </Suspense>
+        }
+      />
       {(import.meta.env.DEV || import.meta.env.PHANPY_DEV) && (
-        <Route
-          path="/_sandbox"
-          element={
-            <Suspense fallback={<Loader id="loader-sandbox" />}>
-              <Sandbox />
-            </Suspense>
-          }
-        />
+        <>
+          <Route
+            path="/_sandbox"
+            element={
+              <Suspense fallback={<Loader id="loader-sandbox" />}>
+                <Sandbox />
+              </Suspense>
+            }
+          />
+          <Route path="/_qr-scan" element={<QrScanTest />} />
+        </>
       )}
     </Routes>
   );
 });
 
+// Auth route wrapper that redirects to login if not authenticated
+function AuthRoute({ children }) {
+  const isLoggedIn = useAuth();
+  const location = useLocation();
+
+  if (!isLoggedIn) {
+    const redirectPath = location.pathname + location.search;
+    store.session.set('loginRedirect', redirectPath);
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
 function getPrevLocation() {
   return states.prevLocation || null;
 }
-function SecondaryRoutes({ isLoggedIn }) {
+function SecondaryRoutes() {
   // const snapStates = useSnapshot(states);
   const location = useLocation();
   // const prevLocation = snapStates.prevLocation;
@@ -581,24 +717,125 @@ function SecondaryRoutes({ isLoggedIn }) {
 
   return (
     <Routes location={backgroundLocation.current || location}>
-      {isLoggedIn && (
-        <>
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/mentions" element={<Mentions />} />
-          <Route path="/following" element={<Following />} />
-          <Route path="/b" element={<Bookmarks />} />
-          <Route path="/f" element={<Favourites />} />
-          <Route path="/l">
-            <Route index element={<Lists />} />
-            <Route path=":id" element={<List />} />
-          </Route>
-          <Route path="/fh" element={<FollowedHashtags />} />
-          <Route path="/sp" element={<ScheduledPosts />} />
-          <Route path="/ft" element={<Filters />} />
-          <Route path="/catchup" element={<Catchup />} />
-          <Route path="/annual_report/:year" element={<AnnualReport />} />
-        </>
-      )}
+      <Route
+        path="/notifications"
+        element={
+          <AuthRoute>
+            <Notifications />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/mentions"
+        element={
+          <AuthRoute>
+            <Mentions />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/following"
+        element={
+          <AuthRoute>
+            <Following />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/b"
+        element={
+          <AuthRoute>
+            <Bookmarks />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/f"
+        element={
+          <AuthRoute>
+            <Favourites />
+          </AuthRoute>
+        }
+      />
+      <Route path="/l">
+        <Route
+          index
+          element={
+            <AuthRoute>
+              <Lists />
+            </AuthRoute>
+          }
+        />
+        <Route
+          path=":id"
+          element={
+            <AuthRoute>
+              <List />
+            </AuthRoute>
+          }
+        />
+      </Route>
+      <Route
+        path="/fh"
+        element={
+          <AuthRoute>
+            <FollowedHashtags />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/sp"
+        element={
+          <AuthRoute>
+            <ScheduledPosts />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/ft"
+        element={
+          <AuthRoute>
+            <Filters />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/catchup"
+        element={
+          <AuthRoute>
+            <Catchup />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/yip"
+        element={
+          <AuthRoute>
+            <Suspense
+              fallback={
+                <div
+                  id="year-in-posts-page"
+                  class="deck-container"
+                  tabIndex="-1"
+                >
+                  {/* Prevent flash of no background as this is lazy-loaded */}
+                  <Loader />
+                </div>
+              }
+            >
+              <YearInPosts />
+            </Suspense>
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/annual_report/:year"
+        element={
+          <AuthRoute>
+            <AnnualReport />
+          </AuthRoute>
+        }
+      />
       <Route path="/:instance?/t/:hashtag" element={<Hashtag />} />
       <Route path="/:instance?/a/:id" element={<AccountStatuses />} />
       <Route path="/:instance?/p">

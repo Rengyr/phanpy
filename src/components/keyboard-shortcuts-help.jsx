@@ -10,6 +10,15 @@ import states from '../utils/states';
 import Icon from './icon';
 import Modal from './modal';
 
+// Helper component for sequential key shortcuts
+function SequentialKeys({ key1, key2 }) {
+  return (
+    <Trans>
+      <kbd>{key1}</kbd> then <kbd>{key2}</kbd>
+    </Trans>
+  );
+}
+
 export default memo(function KeyboardShortcutsHelp() {
   const { t } = useLingui();
   const snapStates = useSnapshot(states);
@@ -26,6 +35,7 @@ export default memo(function KeyboardShortcutsHelp() {
     },
     {
       useKey: true,
+      ignoreModifiers: true,
       ignoreEventWhen: (e) => {
         const isCatchUpPage = /\/catchup/i.test(location.hash);
         return isCatchUpPage || e.metaKey || e.ctrlKey || e.altKey;
@@ -85,11 +95,11 @@ export default memo(function KeyboardShortcutsHelp() {
                   },
                   {
                     action: t`Open post details`,
-                    keys: (
-                      <Trans>
-                        <kbd>Enter</kbd> or <kbd>o</kbd>
-                      </Trans>
-                    ),
+                    keys: <kbd>Enter</kbd>,
+                  },
+                  {
+                    action: t`Open media or post details`,
+                    keys: <kbd>o</kbd>,
                   },
                   {
                     action: (
@@ -195,6 +205,26 @@ export default memo(function KeyboardShortcutsHelp() {
                         <kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>k</kbd>
                       </Trans>
                     ),
+                  },
+                  {
+                    action: t`Go to Home`,
+                    keys: <SequentialKeys key1="g" key2="h" />,
+                  },
+                  {
+                    action: t`Go to Notifications`,
+                    keys: <SequentialKeys key1="g" key2="n" />,
+                  },
+                  {
+                    action: t`Go to Settings`,
+                    keys: <SequentialKeys key1="g" key2="s" />,
+                  },
+                  {
+                    action: t`Go to Profile`,
+                    keys: <SequentialKeys key1="g" key2="p" />,
+                  },
+                  {
+                    action: t`Go to Bookmarks`,
+                    keys: <SequentialKeys key1="g" key2="b" />,
                   },
                 ].map(({ action, className, keys }) => (
                   <tr key={action}>

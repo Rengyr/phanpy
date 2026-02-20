@@ -1,10 +1,10 @@
 import './status.css';
 
 import { msg, plural } from '@lingui/core/macro';
-import { Trans, useLingui } from '@lingui/react/macro';
+import { Plural, Trans, useLingui } from '@lingui/react/macro';
 import { ControlledMenu, MenuDivider, MenuItem } from '@szhsin/react-menu';
 import { shallowEqual } from 'fast-equals';
-import pThrottle from 'p-throttle';
+import PQueue from 'p-queue';
 import { Fragment } from 'preact';
 import { memo } from 'preact/compat';
 import {
@@ -30,6 +30,7 @@ import getTranslateTargetLanguage from '../utils/get-translate-target-language';
 import getHTMLText from '../utils/getHTMLText';
 import htmlContentLength from '../utils/html-content-length';
 import localeMatch from '../utils/locale-match';
+import mem from '../utils/mem';
 import niceDateTime from '../utils/nice-date-time';
 import openCompose from '../utils/open-compose';
 import pmem from '../utils/pmem';
@@ -70,26 +71,32 @@ import NameText from './name-text';
 import Poll from './poll';
 import PostContent from './post-content';
 import PostEmbedModal from './post-embed-modal';
+import QuoteChainModal from './quote-chain-modal';
 import QuoteSettingsSheet from './quote-settings-sheet';
 import QuotesModal from './quotes-modal';
 import RelativeTime from './relative-time';
 import StatusButton from './status-button';
 import StatusCard from './status-card';
 import StatusCompact from './status-compact';
+import StatusTags from './status-tags';
+import SubMenu2 from './submenu2';
 import ThreadBadge from './thread-badge';
 import TranslationBlock from './translation-block';
 
 const SHOW_COMMENT_COUNT_LIMIT = 280;
 const INLINE_TRANSLATE_LIMIT = 140;
 
-const throttle = pThrottle({
-  limit: 1,
+const accountQueue = new PQueue({
+  concurrency: 1,
   interval: 1000,
+  intervalCap: 1,
 });
-function fetchAccount(id, masto) {
-  return masto.v1.accounts.$select(id).fetch();
+function fetchAccount(id, masto, signal) {
+  return accountQueue.add(() => masto.v1.accounts.$select(id).fetch(), {
+    signal,
+  });
 }
-const memFetchAccount = pmem(throttle(fetchAccount));
+const memFetchAccount = pmem(fetchAccount);
 
 const isIOS =
   window.ontouchstart !== undefined &&
@@ -99,15 +106,9 @@ const REACTIONS_LIMIT = 80;
 
 function getPollText(poll) {
   if (!poll?.options?.length) return '';
-  return `📊:\n${poll.options
-    .map(
-      (option) =>
-        `- ${option.title}${
-          option.votesCount >= 0 ? ` (${option.votesCount})` : ''
-        }`,
-    )
-    .join('\n')}`;
+  return `📊:\n${poll.options.map((option) => `- ${option.title}`).join('\n')}`;
 }
+
 function getPostText(status, opts) {
   const {
     maskCustomEmojis,
@@ -124,8 +125,8 @@ function getPostText(status, opts) {
     );
     content = content.replace(emojisRegex, '⬚');
   }
-  return (
-    (spoilerText ? `${spoilerText}\n\n` : '') +
+  const fullText = [
+    spoilerText || '',
     getHTMLText(content, {
       ...htmlTextOpts,
       preProcess:
@@ -148,9 +149,12 @@ function getPostText(status, opts) {
             }
           }
         }),
-    }) +
-    getPollText(poll)
-  );
+    }),
+    getPollText(poll),
+  ]
+    .join('\n\n')
+    .trim();
+  return fullText;
 }
 
 function forgivingQSA(selectors = [], dom = document) {
@@ -164,9 +168,8 @@ function forgivingQSA(selectors = [], dom = document) {
   return [];
 }
 
-function isTranslateble(content, emojis) {
-  if (!content) return false;
-  // Remove custom emojis
+const getHTMLTextForDetectLang = mem((content, emojis) => {
+  if (!content) return '';
   if (emojis?.length) {
     const emojisRegex = new RegExp(
       `:(${emojis.map((e) => e.shortcode).join('|')}):`,
@@ -175,30 +178,7 @@ function isTranslateble(content, emojis) {
     content = content.replace(emojisRegex, '');
   }
   content = content.trim();
-  if (!content) return false;
-  const text = getHTMLText(content, {
-    preProcess: (dom) => {
-      // Remove .mention, pre, code, a:has(.invisible)
-      for (const a of forgivingQSA(
-        ['.mention, pre, code, a:has(.invisible)', '.mention, pre, code'],
-        dom,
-      )) {
-        a.remove();
-      }
-    },
-  });
-  return !!text;
-}
-
-function getHTMLTextForDetectLang(content, emojis) {
-  if (emojis?.length) {
-    const emojisRegex = new RegExp(
-      `:(${emojis.map((e) => e.shortcode).join('|')}):`,
-      'g',
-    );
-    content = content.replace(emojisRegex, '');
-  }
-
+  if (!content) return '';
   return getHTMLText(content, {
     preProcess: (dom) => {
       // Remove anything that can skew the language detection
@@ -223,6 +203,10 @@ function getHTMLTextForDetectLang(content, emojis) {
       }
     },
   });
+});
+
+function isTranslateble(content, emojis) {
+  return !!getHTMLTextForDetectLang(content, emojis);
 }
 
 const SIZE_CLASS = {
@@ -314,6 +298,8 @@ const quoteApprovalPolicyMessages = {
   nobody: msg`Only you can quote`,
 };
 
+const QUESTION_REGEX = /[??？︖❓❔⁇⁈⁉¿‽؟]/;
+
 const { DEV } = import.meta.env;
 
 function Status({
@@ -340,9 +326,53 @@ function Status({
   showReplyParent,
   mediaFirst,
   showCommentCount: forceShowCommentCount,
+  showQuoteCount: forceShowQuoteCount,
+  ghost,
 }) {
   const { _, t, i18n } = useLingui();
   const rtf = RTF(i18n.locale);
+
+  if (ghost) {
+    const { inReplyToAccountId } = ghost;
+    const ghostAccount = inReplyToAccountId
+      ? states.accounts[inReplyToAccountId]
+      : null;
+    return (
+      <article
+        class={`status ghost ${mediaFirst ? 'status-media-first small' : ''}`}
+      >
+        {!mediaFirst && (
+          <Avatar
+            size="xxl"
+            url={ghostAccount?.avatarStatic || ghostAccount?.avatar}
+            squircle={ghostAccount?.bot}
+          />
+        )}
+        <div class="container">
+          <div class="meta">
+            {(size === 's' || mediaFirst) && (
+              <Avatar
+                size="m"
+                url={ghostAccount?.avatarStatic || ghostAccount?.avatar}
+                squircle={ghostAccount?.bot}
+              />
+            )}
+            {ghostAccount && (
+              <NameText account={ghostAccount} showAvatar={false} />
+            )}
+          </div>
+          <div class="content-container">
+            {mediaFirst && <div class="media-first-container" />}
+            <div class={`content ${mediaFirst ? 'media-first-content' : ''}`}>
+              <p class="insignificant">
+                <Trans>Post unavailable</Trans>
+              </p>
+            </div>
+          </div>
+        </div>
+      </article>
+    );
+  }
 
   if (skeleton) {
     return (
@@ -468,7 +498,7 @@ function Status({
   if (mediaFirst && hasMediaAttachments) size = 's';
 
   const currentAccount = getCurrentAccID();
-  const isSelf = currentAccount && currentAccount === accountId;
+  const isSelf = currentAccount && currentAccount == accountId;
 
   const filterContext = useContext(FilterContext);
   const filterInfo =
@@ -519,19 +549,27 @@ function Status({
     inReplyToAccountRef = { url: accountURL, username, displayName };
   }
   const [inReplyToAccount, setInReplyToAccount] = useState(inReplyToAccountRef);
-  if (!withinContext && !inReplyToAccount && inReplyToAccountId) {
-    const account = states.accounts[inReplyToAccountId];
-    if (account) {
-      setInReplyToAccount(account);
-    } else {
-      memFetchAccount(inReplyToAccountId, masto)
+  useEffect(() => {
+    if (!withinContext && !inReplyToAccount && inReplyToAccountId) {
+      const account = states.accounts[inReplyToAccountId];
+      if (account) {
+        setInReplyToAccount(account);
+        return;
+      }
+
+      const abortController = new AbortController();
+      memFetchAccount(inReplyToAccountId, masto, abortController.signal)
         .then((account) => {
           setInReplyToAccount(account);
           states.accounts[account.id] = account;
         })
         .catch((e) => {});
+
+      return () => {
+        abortController.abort();
+      };
     }
-  }
+  }, [withinContext, inReplyToAccount, inReplyToAccountId]);
   const mentionSelf =
     (inReplyToAccountId && inReplyToAccountId === currentAccount) ||
     mentions?.find((mention) => mention.id === currentAccount);
@@ -540,7 +578,6 @@ function Status({
   const readingExpandSpoilers = !!prefs['reading:expand:spoilers'];
 
   // default | show_all | hide_all
-  // Ignore hide_all because it means hide *ALL* media including non-sensitive ones
   const readingExpandMedia =
     prefs['reading:expand:media']?.toLowerCase() || 'default';
 
@@ -684,6 +721,7 @@ function Status({
   const [showEmbed, setShowEmbed] = useState(false);
   const [showQuoteSettings, setShowQuoteSettings] = useState(false);
   const [showQuotes, setShowQuotes] = useState(false);
+  const [showQuoteChain, setShowQuoteChain] = useState(false);
 
   const spoilerContentRef = useTruncated();
   const contentRef = useTruncated();
@@ -695,7 +733,7 @@ function Status({
     0,
   );
 
-  const unauthInteractionErrorMessage = t`Sorry, your current logged-in instance can't interact with this post from another instance.`;
+  const unauthInteractionErrorMessage = t`Sorry, your current logged-in server can't interact with this post from another server.`;
 
   const textWeight = useCallback(
     () =>
@@ -754,7 +792,7 @@ function Status({
 
   const postQuoteApprovalPolicy = getPostQuoteApprovalPolicy(quoteApproval);
 
-  const replyStatus = (e) => {
+  const replyStatus = (e, replyMode = 'all') => {
     if (!sameInstance || !authenticated) {
       return alert(unauthInteractionErrorMessage);
     }
@@ -762,11 +800,13 @@ function Status({
     if (e?.shiftKey || e?.syntheticEvent?.shiftKey) {
       const newWin = openCompose({
         replyToStatus: status,
+        replyMode,
       });
       if (newWin) return;
     }
     showCompose({
       replyToStatus: status,
+      replyMode,
     });
   };
 
@@ -1042,17 +1082,85 @@ function Status({
         </div>
       )
     );
+  const mentionsCount = useMemo(() => {
+    if (!mentions?.length) return false;
+    const allMentions = new Set([accountId, ...mentions.map((m) => m.id)]);
+    return [...allMentions].filter((m) => m !== currentAccount).length;
+  }, [accountId, mentions?.length, currentAccount]);
+  const tooManyMentions = mentionsCount > 3;
+  const ReplyMenuContent = () => (
+    <>
+      <Icon icon="comment" />
+      <span>
+        {repliesCount > 0
+          ? shortenNumber(repliesCount)
+          : tooManyMentions
+            ? t`Reply…`
+            : t`Reply`}
+      </span>
+    </>
+  );
+  const replyModeMenuItems = (
+    <>
+      <MenuItem onClick={(e) => replyStatus(e, 'all')}>
+        <small>
+          <Trans>Reply all</Trans>
+          <br />
+          <span class="more-insignificant">
+            <Plural value={mentionsCount} other="# mentions" />
+          </span>
+        </small>
+      </MenuItem>
+      <MenuItem onClick={(e) => replyStatus(e, 'author-first')}>
+        <small>
+          <Trans>Reply all</Trans>
+          <br />
+          <span class="more-insignificant">
+            <Plural
+              value={mentionsCount - 1}
+              other={
+                <Trans comment="Author mention appears first, other mentions appear below with newlines in between">
+                  <span class="bidi-isolate">@{username || acct}</span> first, #
+                  others below
+                </Trans>
+              }
+            />
+          </span>
+        </small>
+      </MenuItem>
+      <MenuItem onClick={(e) => replyStatus(e, 'author-only')}>
+        <small>
+          <Trans>Reply</Trans>
+          <br />
+          <span class="more-insignificant">
+            <Trans>
+              Only <span class="bidi-isolate">@{username || acct}</span>
+            </Trans>
+          </span>
+        </small>
+      </MenuItem>
+    </>
+  );
   const StatusMenuItems = (
     <>
       {!isSizeLarge && sameInstance && (
         <>
           <div class="menu-control-group-horizontal status-menu">
-            <MenuItem onClick={replyStatus}>
-              <Icon icon="comment" />
-              <span>
-                {repliesCount > 0 ? shortenNumber(repliesCount) : t`Reply`}
-              </span>
-            </MenuItem>
+            {tooManyMentions ? (
+              <SubMenu2
+                openTrigger="clickOnly"
+                direction="bottom"
+                overflow="auto"
+                gap={-8}
+                shift={8}
+                menuClassName="menu-emphasized"
+                label={<ReplyMenuContent />}
+              >
+                {replyModeMenuItems}
+              </SubMenu2>
+            ) : (
+              <MenuItem onClick={replyStatus}>{<ReplyMenuContent />}</MenuItem>
+            )}
             <MenuConfirm
               subMenu
               confirmLabel={
@@ -1196,6 +1304,18 @@ function Status({
               <Icon icon="quote" />
               <span>
                 <Trans>View Quotes</Trans>
+              </span>
+            </MenuItem>
+          )}
+          {quote?.quotedStatus?.quote && (
+            <MenuItem
+              onClick={() => {
+                setShowQuoteChain(true);
+              }}
+            >
+              <Icon icon="quote" />
+              <span>
+                <Trans>Unwrap quote chain</Trans>
               </span>
             </MenuItem>
           )}
@@ -1646,11 +1766,19 @@ function Status({
   );
 
   const hotkeysEnabled = !readOnly && !previewMode && !quoted;
-  const rRef = useHotkeys('r, shift+r', replyStatus, {
-    enabled: hotkeysEnabled,
-    useKey: true,
-    ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey,
-  });
+  const rRef = useHotkeys(
+    'r, shift+r',
+    (e, handler) => {
+      // Fix bug: shift+r is fired even when r is pressed due to useKey: true
+      if (e.shiftKey !== handler.shift) return;
+      replyStatus(e);
+    },
+    {
+      enabled: hotkeysEnabled,
+      useKey: true,
+      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey,
+    },
+  );
   const fRef = useHotkeys('f, l', favouriteStatusNotify, {
     enabled: hotkeysEnabled,
     ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
@@ -1856,8 +1984,7 @@ function Status({
     ) {
       return false;
     }
-    const questionRegex = /[??？︖❓❔⁇⁈⁉¿‽؟]/;
-    const containsQuestion = questionRegex.test(content);
+    const containsQuestion = QUESTION_REGEX.test(content);
     if (!containsQuestion) return false;
     if (contentLength > 0 && contentLength <= SHOW_COMMENT_COUNT_LIMIT) {
       return true;
@@ -1877,6 +2004,12 @@ function Status({
     content,
     contentLength,
   ]);
+
+  // Keep this simple for now, unlike showCommentCount
+  const showQuoteCount =
+    typeof forceShowQuoteCount === 'function'
+      ? forceShowQuoteCount(quotesCount)
+      : forceShowQuoteCount && quotesCount > 0;
 
   return (
     <StatusParent>
@@ -1995,7 +2128,11 @@ function Status({
                 class="reply-button"
                 icon="comment"
                 iconSize="m"
-                onClick={replyStatus}
+                // Menu doesn't work here
+                // Temporary solution: reply author-first if too many mentions
+                onClick={(e) =>
+                  replyStatus(e, tooManyMentions ? 'author-first' : 'all')
+                }
               />
               <StatusButton
                 size="s"
@@ -2143,24 +2280,20 @@ function Status({
                       <Icon
                         icon="comment2"
                         size="s"
-                        // alt={`${repliesCount} ${
-                        //   repliesCount === 1 ? 'reply' : 'replies'
-                        // }`}
                         alt={plural(repliesCount, {
                           one: '# reply',
                           other: '# replies',
                         })}
                       />
-                    ) : (
-                      visibility !== 'public' &&
-                      visibility !== 'direct' && (
-                        <Icon
-                          icon={visibilityIconsMap[visibility]}
-                          alt={_(visibilityText[visibility])}
-                          size="s"
-                        />
-                      )
-                    )}{' '}
+                    ) : visibility !== 'public' && visibility !== 'direct' ? (
+                      <Icon
+                        icon={visibilityIconsMap[visibility]}
+                        alt={_(visibilityText[visibility])}
+                        size="s"
+                      />
+                    ) : editedAt && size === 's' ? (
+                      <Icon icon="pencil" size="s" alt={t`Edited`} />
+                    ) : null}{' '}
                     <RelativeTime datetime={createdAtDate} format="micro" />
                     {!previewMode && !readOnly && (
                       <Icon icon="more2" class="more" alt={t`More`} />
@@ -2210,15 +2343,24 @@ function Status({
                   //   {StatusMenuItems}
                   // </Menu>
                   <span class="time">
-                    {visibility !== 'public' && visibility !== 'direct' && (
-                      <>
-                        <Icon
-                          icon={visibilityIconsMap[visibility]}
-                          alt={_(visibilityText[visibility])}
-                          size="s"
-                        />{' '}
-                      </>
-                    )}
+                    {showCommentHint && !showCommentCount ? (
+                      <Icon
+                        icon="comment2"
+                        size="s"
+                        alt={plural(repliesCount, {
+                          one: '# reply',
+                          other: '# replies',
+                        })}
+                      />
+                    ) : visibility !== 'public' && visibility !== 'direct' ? (
+                      <Icon
+                        icon={visibilityIconsMap[visibility]}
+                        alt={_(visibilityText[visibility])}
+                        size="s"
+                      />
+                    ) : editedAt && size === 's' ? (
+                      <Icon icon="pencil" size="s" alt={t`Edited`} />
+                    ) : null}{' '}
                     <RelativeTime datetime={createdAtDate} format="micro" />
                   </span>
                 ))}
@@ -2260,7 +2402,10 @@ function Status({
           )}
           <div
             class={`content-container ${
-              spoilerText || sensitive || filterInfo?.action === 'blur'
+              spoilerText ||
+              sensitive ||
+              filterInfo?.action === 'blur' ||
+              readingExpandMedia === 'hide_all'
                 ? 'has-spoiler'
                 : ''
             } ${showSpoiler ? 'show-spoiler' : ''} ${
@@ -2424,8 +2569,7 @@ function Status({
                         })
                         .then((pollResponse) => {
                           states.statuses[sKey].poll = pollResponse;
-                        })
-                        .catch((e) => {}); // Silently fail
+                        });
                     }}
                   />
                 )}
@@ -2448,7 +2592,9 @@ function Status({
                   />
                 )}
                 {!previewMode &&
-                  (sensitive || filterInfo?.action === 'blur') &&
+                  (sensitive ||
+                    filterInfo?.action === 'blur' ||
+                    readingExpandMedia === 'hide_all') &&
                   !!mediaAttachments.length &&
                   (readingExpandMedia !== 'show_all' ||
                     filterInfo?.action === 'blur') && (
@@ -2556,6 +2702,7 @@ function Status({
                   instance={instance}
                   level={quoted}
                   collapsed={!isSizeLarge && !withinContext}
+                  fallbackQuote={quote}
                 />
                 {!!card &&
                   /^https/i.test(card?.url) &&
@@ -2575,12 +2722,22 @@ function Status({
                       instance={currentInstance}
                     />
                   )}
+                {size !== 's' && <StatusTags tags={tags} content={content} />}
               </>
             )}
           </div>
-          {!isSizeLarge && showCommentCount && (
+          {!isSizeLarge && (showCommentCount || showQuoteCount) && (
             <div class="content-comment-hint insignificant">
-              <Icon icon="comment2" alt={t`Replies`} /> {repliesCount}
+              {showCommentCount && (
+                <>
+                  <Icon icon="comment2" alt={t`Replies`} /> {repliesCount}
+                </>
+              )}{' '}
+              {showQuoteCount && (
+                <>
+                  <Icon icon="quote" alt={t`Quotes`} /> {quotesCount}
+                </>
+              )}
             </div>
           )}
           {(
@@ -2592,10 +2749,7 @@ function Status({
                   </span>
                 ) : isSizeLarge && (
                   <>
-                    {/* <Icon
-                      icon={visibilityIconsMap[visibility]}
-                      alt={visibilityText[visibility]}
-                    /> */}
+                    <Icon icon={visibilityIconsMap[visibility]} alt="" />{' '}
                     <span>{_(visibilityText[visibility])}</span> &bull;{' '}
                     <a href={url} target="_blank" rel="noopener">
                       {
@@ -2698,14 +2852,36 @@ function Status({
               )}
               <div class={`actions ${_deleted ? 'disabled' : ''}`}>
                 <div class="action has-count">
-                  <StatusButton
-                    title={t`Reply`}
-                    alt={t`Comments`}
-                    class="reply-button"
-                    icon="comment"
-                    count={repliesCount}
-                    onClick={replyStatus}
-                  />
+                  {tooManyMentions ? (
+                    <Menu2
+                      openTrigger="clickOnly"
+                      direction="bottom"
+                      overflow="auto"
+                      gap={-8}
+                      shift={8}
+                      menuClassName="menu-emphasized"
+                      menuButton={
+                        <StatusButton
+                          title={t`Reply`}
+                          alt={t`Comments`}
+                          class="reply-button"
+                          icon="comment"
+                          count={repliesCount}
+                        />
+                      }
+                    >
+                      {replyModeMenuItems}
+                    </Menu2>
+                  ) : (
+                    <StatusButton
+                      title={t`Reply`}
+                      alt={t`Comments`}
+                      class="reply-button"
+                      icon="comment"
+                      count={repliesCount}
+                      onClick={replyStatus}
+                    />
+                  )}
                 </div>
                 {/* <div class="action has-count">
                 <StatusButton
@@ -2729,7 +2905,14 @@ function Status({
                       <>
                         <a href="javascript:void(0)">
                           <Icon icon="rocket" />
-                          <span>{reblogged ? t`Unboost` : t`Boost`}</span>
+                          <span class="menu-grow">
+                            {reblogged ? t`Unboost` : t`Boost`}
+                          </span>
+                          {reblogsCount > 0 && (
+                            <small class="more-insignificant">
+                              {shortenNumber(reblogsCount)}
+                            </small>
+                          )}
                         </a>
                       </>
                     }
@@ -2752,7 +2935,12 @@ function Status({
                                 {quoteMetaText}
                               </small>
                             ) : (
-                              <span>{quoteText}</span>
+                              <span class="menu-grow">{quoteText}</span>
+                            )}
+                            {quotesCount > 0 && (
+                              <small class="more-insignificant">
+                                {shortenNumber(quotesCount)}
+                              </small>
                             )}
                           </MenuItem>
                         )}
@@ -2787,7 +2975,11 @@ function Status({
                       ]}
                       alt={[t`Boost`, t`Boosted`]}
                       class="reblog-button"
-                      icon="rocket"
+                      icon={
+                        reblogsCount <= 0 && quotesCount > 0
+                          ? 'quote'
+                          : 'rocket'
+                      }
                       count={reblogsCount}
                       extraCount={quotesCount}
                       // onClick={boostStatus}
@@ -2835,7 +3027,7 @@ function Status({
                         title={t`More`}
                         class="plain more-button"
                       >
-                        <Icon icon="more" size="l" alt={t`More`} />
+                        <Icon icon="more2" size="l" alt={t`More`} />
                       </button>
                     </div>
                   }
@@ -2916,6 +3108,21 @@ function Status({
             />
           </Modal>
         )}
+        {!!showQuoteChain && (
+          <Modal
+            onClose={() => {
+              setShowQuoteChain(false);
+            }}
+          >
+            <QuoteChainModal
+              statusId={id}
+              instance={instance}
+              onClose={() => {
+                setShowQuoteChain(false);
+              }}
+            />
+          </Modal>
+        )}
       </article>
     </StatusParent>
   );
@@ -2951,6 +3158,14 @@ const handledUnfulfilledStates = [
   'pending',
   'rejected',
   'revoked',
+  'blocked_account',
+  'blocked_domain',
+  'muted_account',
+];
+const revealableUnfulfilledStates = [
+  'blocked_account',
+  'blocked_domain',
+  'muted_account',
 ];
 const unfulfilledText = {
   filterHidden: msg`Post hidden by your filters`,
@@ -2959,94 +3174,194 @@ const unfulfilledText = {
   unauthorized: msg`Post unavailable`,
   rejected: msg`Post unavailable`,
   revoked: msg`Post removed by author`,
+  blocked_account: (name) => msg`Post hidden because you've blocked @${name}.`,
+  blocked_domain: (domain) =>
+    msg`Post hidden because you've blocked ${domain}.`,
+  muted_account: (name) => msg`Post hidden because you've muted @${name}.`,
 };
 
-const QuoteStatuses = memo(({ id, instance, level = 0, collapsed = false }) => {
-  if (!id || !instance) return;
+const QuoteStatus = memo(({ quote, level = 0 }) => {
   const { _ } = useLingui();
   const snapStates = useSnapshot(states);
-  const sKey = statusKey(id, instance);
-  const quotes = snapStates.statusQuotes[sKey];
-  let uniqueQuotes = quotes?.filter(
-    (q, i, arr) => q.native || arr.findIndex((q2) => q2.url === q.url) === i,
-  );
-
-  if (!uniqueQuotes?.length) return;
-  if (level > 2) return;
-
-  if (collapsed) {
-    // Only show the first quote if "collapsed"
-    uniqueQuotes = [uniqueQuotes[0]];
-  }
-
   const filterContext = useContext(FilterContext);
   const currentAccount = getCurrentAccID();
-  const containerRef = useTruncated();
 
+  const q = quote;
+  let unfulfilledState;
+
+  // Static as in there's no live update (edited, liked, etc.)
+  const isStaticQuote = !!q.quoteStatus;
+
+  const quoteStatus =
+    snapStates.statuses[statusKey(q.id, q.instance)] || q.quoteStatus;
+  if (quoteStatus) {
+    const isSelf = currentAccount && currentAccount === quoteStatus.account?.id;
+    const filterInfo =
+      !isSelf && isFiltered(quoteStatus.filtered, filterContext);
+
+    if (filterInfo?.action === 'hide') {
+      unfulfilledState = 'filterHidden';
+    }
+  }
+
+  if (!unfulfilledState) {
+    unfulfilledState = handledUnfulfilledStates.find(
+      (state) => q.state === state,
+    );
+  }
+
+  const isRevealable = revealableUnfulfilledStates.includes(unfulfilledState);
+  const quoteKey = q.id ? statusKey(q.id, q.instance) : null;
+  const isRevealed = quoteKey && snapStates.revealedQuotes[quoteKey];
+
+  if (unfulfilledState && (!isRevealable || !isRevealed)) {
+    // Get account info for revealable states
+    const quotedAccount = quoteStatus?.account;
+    const quotedAccountAcct = quotedAccount?.acct;
+    const domain = quotedAccountAcct?.split('@')[1];
+
+    let message;
+    if (isRevealable) {
+      if (unfulfilledState === 'blocked_account') {
+        message = _(unfulfilledText.blocked_account(quotedAccountAcct));
+      } else if (unfulfilledState === 'blocked_domain') {
+        message = _(unfulfilledText.blocked_domain(domain));
+      } else if (unfulfilledState === 'muted_account') {
+        message = _(unfulfilledText.muted_account(quotedAccountAcct));
+      }
+    } else {
+      message = _(unfulfilledText[unfulfilledState]);
+    }
+
+    return (
+      <div
+        key={quoteKey}
+        class={`status-card-unfulfilled ${
+          unfulfilledState === 'filterHidden' || isRevealable
+            ? 'status-card-ghost'
+            : ''
+        } ${q.native ? 'quote-post-native' : ''}`}
+      >
+        <Icon icon="quote" />
+        <i>{message}</i>
+        {isRevealable && quoteKey && (
+          <button
+            type="button"
+            class="textual"
+            onClick={() => {
+              states.revealedQuotes[quoteKey] = true;
+            }}
+          >
+            <Trans>Show anyway</Trans>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const Parent = q.native ? Fragment : LazyShazam;
   return (
-    <div
-      class="status-card-container"
-      ref={containerRef}
-      data-read-more={_(readMoreText)}
-    >
-      {uniqueQuotes.map((q) => {
-        let unfulfilledState;
-
-        const quoteStatus = snapStates.statuses[statusKey(q.id, q.instance)];
-        if (quoteStatus) {
-          const isSelf =
-            currentAccount && currentAccount === quoteStatus.account?.id;
-          const filterInfo =
-            !isSelf && isFiltered(quoteStatus.filtered, filterContext);
-
-          if (filterInfo?.action === 'hide') {
-            unfulfilledState = 'filterHidden';
-          }
-        }
-
-        if (!unfulfilledState) {
-          unfulfilledState = handledUnfulfilledStates.find(
-            (state) => q.state === state,
-          );
-        }
-
-        if (unfulfilledState) {
-          return (
-            <div
-              class={`status-card-unfulfilled ${
-                unfulfilledState === 'filterHidden' ? 'status-card-ghost' : ''
-              } ${q.native ? 'quote-post-native' : ''}`}
-            >
-              <Icon icon="quote" />
-              <i>{_(unfulfilledText[unfulfilledState])}</i>
-            </div>
-          );
-        }
-
-        const Parent = q.native ? Fragment : LazyShazam;
-        return (
-          <Parent id={q.instance + q.id} key={q.instance + q.id}>
-            <Link
-              key={q.instance + q.id}
-              to={`${q.instance ? `/${q.instance}` : ''}/s/${q.id}`}
-              class={`status-card-link ${q.native ? 'quote-post-native' : ''}`}
-              data-read-more={_(readMoreText)}
-            >
-              <Status
-                statusID={q.id}
-                instance={q.instance}
-                size="s"
-                quoted={level + 1}
-                quoteDomain={q.originalDomain}
-                enableCommentHint
-              />
-            </Link>
-          </Parent>
-        );
-      })}
-    </div>
+    <Parent id={q.instance + q.id} key={q.instance + q.id}>
+      <Link
+        key={q.instance + q.id}
+        to={`${q.instance ? `/${q.instance}` : ''}/s/${q.id}`}
+        class={`status-card-link ${q.native ? 'quote-post-native' : ''}`}
+        data-read-more={_(readMoreText)}
+      >
+        <Status
+          statusID={q.id}
+          status={isStaticQuote ? quoteStatus : undefined}
+          instance={q.instance}
+          size="s"
+          quoted={level + 1}
+          quoteDomain={q.originalDomain}
+          enableCommentHint
+        />
+      </Link>
+    </Parent>
   );
 });
+
+const ShallowQuote = ({ quote } = {}) => {
+  const { account, native, instance } = quote || {};
+  if (!account) return null;
+  return (
+    <div class="status-card-container">
+      <div class={native ? 'quote-post-native' : ''}>
+        <div class="status-card status-shallow-card">
+          <NameText account={account} instance={instance} showAvatar />{' '}
+          <span class="insignificant">…</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const QuoteStatuses = memo(
+  ({ id, instance, level = 0, collapsed = false, fallbackQuote }) => {
+    if (!id || !instance) return;
+    const { _ } = useLingui();
+    const snapStates = useSnapshot(states);
+    const sKey = statusKey(id, instance);
+    const quotes = snapStates.statusQuotes[sKey];
+    let uniqueQuotes = quotes?.filter(
+      (q, i, arr) => q.native || arr.findIndex((q2) => q2.url === q.url) === i,
+    );
+
+    const containerRef = useTruncated();
+
+    if (!uniqueQuotes?.length && fallbackQuote?.quotedStatus) {
+      // Just render it
+      return (
+        <div
+          class="status-card-container"
+          ref={containerRef}
+          data-read-more={_(readMoreText)}
+          data-quote-container-static={true}
+        >
+          <QuoteStatus
+            quote={{
+              // Same structure as the one in saveStatus (utils/states)
+              id,
+              instance,
+              // url
+              state: fallbackQuote.state,
+              // account
+              native: true,
+              // Inject whole quoteStatus instead of reading from states
+              quoteStatus: fallbackQuote.quotedStatus,
+            }}
+          />
+        </div>
+      );
+    }
+
+    if (!uniqueQuotes?.length) return;
+    if (level > 2) {
+      return <ShallowQuote quote={uniqueQuotes[0]} />;
+    }
+
+    if (collapsed) {
+      // Only show the first quote if "collapsed"
+      uniqueQuotes = [uniqueQuotes[0]];
+    }
+
+    return (
+      <div
+        class="status-card-container"
+        ref={containerRef}
+        data-read-more={_(readMoreText)}
+      >
+        {uniqueQuotes.map((q) => {
+          const quoteKey = q.id
+            ? statusKey(q.id, q.instance)
+            : `${q.instance || ''}-${q.state}`;
+          return <QuoteStatus key={quoteKey} quote={q} level={level} />;
+        })}
+      </div>
+    );
+  },
+);
 
 function EditedAtModal({
   statusID,
