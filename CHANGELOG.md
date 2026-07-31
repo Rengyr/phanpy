@@ -399,6 +399,44 @@ Recap: Mastodon v4.3 features (https://github.com/mastodon/mastodon/releases/tag
 - 🗓️ Experimental "Year In Posts"
 - 🐛 Bug fixes
 
+## January 31, 2026
+
+📢 https://mastodon.social/@cheeaun/115989883020173120
+
+- ⌨️ More sequential hotkeys, g>s (Settings), g>p (Profile), g>b (Bookmarks)
+- 💈 Redesigned poll
+- 🛬 Redesigned landing page
+- 🐛 Bug fixes
+
+## February 24, 2026
+
+📢 https://mastodon.social/@cheeaun/116126267334672277
+
+- 📤 Allow receiving shared data with the Web Share Target API
+- 🔐 Timeline access controls
+- 👤 New shortcut: "Profile"
+- 📝 "Only followings" filter for Mentions
+- ↕️ Preliminary support for vertical-lr writing mode
+- 🐛 Bug fixes
+
+## May 15, 2026
+
+📢 https://mastodon.social/@cheeaun/116578836866401369
+
+- 🔄 Experimental paginated timeline
+- 🪣 Multi-filters for profile posts
+- 🧘 Wellbeing: hide trending, local or federated timelines
+- 📱 Haptics
+- 🐛 Bug fixes
+
+## June 22, 2026
+
+📢 https://mastodon.social/@cheeaun/116793733342092207
+
+- 🗂️ Collections (Mastodon v4.6)
+- 🤖 Filter notifications from bots (Mastodon v4.6)
+- 🐛 Bug fixes
+
 <!--
 
 ## Next

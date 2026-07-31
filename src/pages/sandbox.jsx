@@ -3,10 +3,10 @@ import './sandbox.css';
 import { useEffect, useState } from 'preact/hooks';
 import { uid } from 'uid/single';
 
-import testAudioURL from '../assets/sandbox/big-buck-bunny.mp3';
-import testVideoURL from '../assets/sandbox/big-buck-bunny.webm';
 import testGIFURL from '../assets/sandbox/big-buck-bunny-muted.webm';
 import testPreviewURL from '../assets/sandbox/big-buck-bunny-preview.png';
+import testAudioURL from '../assets/sandbox/big-buck-bunny.mp3';
+import testVideoURL from '../assets/sandbox/big-buck-bunny.webm';
 
 import Status from '../components/status';
 import { api, getPreferences } from '../utils/api';
@@ -50,6 +50,10 @@ const MOCK_STATUS = ({ toggles = {} } = {}) => {
     userPreferences,
     showTags,
     tagsCount,
+    deleted,
+    showCollectionCard,
+    collectionCardsCount,
+    collectionAccountsCount,
   } = toggles;
 
   const shortContent = 'This is a test status with short text content.';
@@ -58,6 +62,17 @@ const MOCK_STATUS = ({ toggles = {} } = {}) => {
   <p>Second paragraph goes here with more sample text. The Status component will render this appropriately based on the current size setting.</p>
 
   <p>Third paragraph adds even more content to ensure we have a properly long post that might get truncated depending on the view settings.</p>`;
+  const shortVerticalLrContent = `<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p><a href="https://example.com">this website</a> - <a href="https://example.social/tags/coding" class="hashtag" rel="tag">#coding</a> - <a href="https://example.social/@test" class="u-url mention">@test</a></p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>`;
+  const longVerticalLrContent = `<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>
+<p>ᠬᠦᠮᠦᠨ ᠪᠦᠷ ᠲᠥᠷᠥᠵᠦ ᠮᠡᠨᠳᠡᠯᠡᠬᠦ ᠡᠷᠬᠡ ᠴᠢᠯᠥᠭᠡ ᠲᠡᠢ᠂ ᠠᠳᠠᠯᠢᠬᠠᠨ ᠨᠡᠷ᠎ᠡ ᠲᠥᠷᠥ ᠲᠡᠢ᠂ ᠢᠵᠢᠯ ᠡᠷᠬᠡ ᠲᠡᠢ ᠪᠠᠢᠠᠭ᠃</p>`;
   const linksContent = `<p>This is a test status with links. Check out <a href="https://example.com">this website</a> and <a href="https://google.com">Google</a>. Links should be clickable and properly styled.</p>`;
   const hashtagsContent = `<p>This is a test status with hashtags. <a href="https://example.social/tags/coding" class="hashtag" rel="tag">#coding</a> <a href="https://example.social/tags/webdev" class="hashtag" rel="tag">#webdev</a> <a href="https://example.social/tags/javascript" class="hashtag" rel="tag">#javascript</a> <a href="https://example.social/tags/reactjs" class="hashtag" rel="tag">#reactjs</a> <a href="https://example.social/tags/preact" class="hashtag" rel="tag">#preact</a></p><p>Hashtags should be formatted and clickable.</p>`;
   const mentionsContent = `<p>This is a test status with mentions. Hello <a href="https://example.social/@cheeaun" class="u-url mention">@cheeaun</a> and <a href="https://example.social/@test" class="u-url mention">@test</a>! What do you think about this <a href="https://example.social/@another_user" class="u-url mention">@another_user</a>?</p><p>Mentions should be highlighted and clickable.</p>`;
@@ -67,6 +82,7 @@ const MOCK_STATUS = ({ toggles = {} } = {}) => {
     // Random ID to un-memoize Status
     id: hashID(toggles),
     account: {
+      id: 'sandbox-account',
       username: 'test',
       name: 'Test',
       // avatar: 'https://picsum.photos/seed/avatar/200',
@@ -78,15 +94,19 @@ const MOCK_STATUS = ({ toggles = {} } = {}) => {
       contentFormat === 'text'
         ? contentType === 'long'
           ? longContent
-          : contentType === 'links'
-            ? linksContent
-            : contentType === 'hashtags'
-              ? hashtagsContent
-              : contentType === 'mentions'
-                ? mentionsContent
-                : contentType === 'math'
-                  ? mathContent
-                  : shortContent
+          : contentType === 'shortVerticalLr'
+            ? shortVerticalLrContent
+            : contentType === 'longVerticalLr'
+              ? longVerticalLrContent
+              : contentType === 'links'
+                ? linksContent
+                : contentType === 'hashtags'
+                  ? hashtagsContent
+                  : contentType === 'mentions'
+                    ? mentionsContent
+                    : contentType === 'math'
+                      ? mathContent
+                      : shortContent
         : '',
     visibility: toggles.visibility || 'public',
     createdAt: new Date().toISOString(),
@@ -98,6 +118,11 @@ const MOCK_STATUS = ({ toggles = {} } = {}) => {
     tags: [],
     mediaAttachments: [],
   };
+
+  // Add language key for vertical-lr content
+  if (contentType === 'shortVerticalLr' || contentType === 'longVerticalLr') {
+    base.language = 'mn-Mong';
+  }
 
   // Add media if selected
   if (mediaCount > 0) {
@@ -320,6 +345,43 @@ const MOCK_STATUS = ({ toggles = {} } = {}) => {
     };
   }
 
+  // Add _deleted flag if enabled
+  if (deleted) {
+    base._deleted = true;
+  }
+
+  // Add tagged collections if enabled
+  if (showCollectionCard) {
+    const cardsCount = Math.min(
+      6,
+      Math.max(1, parseInt(collectionCardsCount, 10) || 1),
+    );
+    const accountsCount = Math.max(
+      0,
+      parseInt(collectionAccountsCount, 10) || 0,
+    );
+    base.taggedCollections = Array(cardsCount)
+      .fill(0)
+      .map((_, j) => ({
+        id: `sandbox-collection-${j}`,
+        name: `Sandbox Test Collection ${j + 1}`,
+        description:
+          'A sample collection for testing the CollectionCard component.',
+        url: `https://example.com/collection/sandbox-test-${j}`,
+        itemsCount: accountsCount,
+        items: Array(accountsCount)
+          .fill(0)
+          .map((_, i) => ({
+            accountId: `sandbox-collection-${j}-${i}`,
+          })),
+        accountId: base.account?.id || 'sandbox-creator',
+        language: 'en',
+        updatedAt: new Date().toISOString(),
+        discoverable: true,
+        sensitive: false,
+      }));
+  }
+
   console.log('Final base', base);
   return base;
 };
@@ -353,6 +415,10 @@ const INITIAL_STATE = {
   displayStyle: 'adaptive', // Display style for preview
   showTags: false, // New toggle for showing status tags
   tagsCount: 'few', // New option for tags count: 'few' (3) or 'many' (10)
+  deleted: false, // Toggle to mark status as deleted
+  showCollectionCard: false, // Toggle to show collection card
+  collectionCardsCount: '1', // Number of collection cards (max 6)
+  collectionAccountsCount: '3', // Number of accounts in each collection
 };
 
 export default function Sandbox() {
@@ -479,6 +545,10 @@ export default function Sandbox() {
       quoteFilters: toggleState.quoteFilters,
       showTags: toggleState.showTags, // Add showTags toggle
       tagsCount: toggleState.tagsCount, // Add tagsCount option
+      deleted: toggleState.deleted, // Add deleted toggle
+      showCollectionCard: toggleState.showCollectionCard,
+      collectionCardsCount: toggleState.collectionCardsCount,
+      collectionAccountsCount: toggleState.collectionAccountsCount,
     },
   });
 
@@ -832,6 +902,60 @@ export default function Sandbox() {
     }
   };
 
+  // Pre-populate states.accounts with collection account data
+  // This must happen synchronously during render so CollectionCard can read them
+  if (toggleState.showCollectionCard) {
+    const cardsCount = Math.min(
+      6,
+      Math.max(1, parseInt(toggleState.collectionCardsCount, 10) || 1),
+    );
+    const accountsCount = Math.max(
+      0,
+      parseInt(toggleState.collectionAccountsCount, 10) || 0,
+    );
+
+    // Add creator account
+    states.accounts['sandbox-creator'] = {
+      id: 'sandbox-creator',
+      username: 'sandbox-creator',
+      acct: `sandbox-creator@${currentInstance}`,
+      displayName: 'Sandbox Creator',
+      avatarStatic: `https://picsum.photos/seed/sandbox-creator/200`,
+      avatar: `https://picsum.photos/seed/sandbox-creator/200`,
+      bot: false,
+      url: `https://${currentInstance}/@sandbox-creator`,
+    };
+    if (!states.accounts['sandbox-account']) {
+      states.accounts['sandbox-account'] = {
+        id: 'sandbox-account',
+        username: 'test',
+        acct: `test@${currentInstance}`,
+        displayName: 'Test',
+        avatarStatic: '/logo-192.png',
+        avatar: '/logo-192.png',
+        bot: false,
+        url: `https://${currentInstance}/@test`,
+      };
+    }
+
+    // Add collection member accounts for all collections
+    for (let j = 0; j < cardsCount; j++) {
+      for (let i = 0; i < accountsCount; i++) {
+        const id = `sandbox-collection-${j}-${i}`;
+        states.accounts[id] = {
+          id,
+          username: `collection${j}-${i}`,
+          acct: `collection${j}-${i}@${currentInstance}`,
+          displayName: `Collection ${j + 1} User ${i}`,
+          avatarStatic: `https://picsum.photos/seed/sandbox-coll-${j}-${i}/200`,
+          avatar: `https://picsum.photos/seed/sandbox-coll-${j}-${i}/200`,
+          bot: i === 0,
+          url: `https://${currentInstance}/@collection${j}-${i}`,
+        };
+      }
+    }
+  }
+
   return (
     <main id="sandbox">
       <header>
@@ -924,6 +1048,18 @@ export default function Sandbox() {
                     }
                   />
                   <span>Media first</span>
+                </label>
+              </li>
+              <li>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={toggleState.deleted}
+                    onChange={() =>
+                      updateToggles({ deleted: !toggleState.deleted })
+                    }
+                  />
+                  <span>Deleted</span>
                 </label>
               </li>
             </ul>
@@ -1027,6 +1163,34 @@ export default function Sandbox() {
                         disabled={!toggleState.hasContent}
                       />
                       <span>Long</span>
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      <input
+                        type="radio"
+                        name="contentType"
+                        checked={toggleState.contentType === 'shortVerticalLr'}
+                        onChange={() =>
+                          updateToggles({ contentType: 'shortVerticalLr' })
+                        }
+                        disabled={!toggleState.hasContent}
+                      />
+                      <span>Short vertical-lr</span>
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      <input
+                        type="radio"
+                        name="contentType"
+                        checked={toggleState.contentType === 'longVerticalLr'}
+                        onChange={() =>
+                          updateToggles({ contentType: 'longVerticalLr' })
+                        }
+                        disabled={!toggleState.hasContent}
+                      />
+                      <span>Long vertical-lr</span>
                     </label>
                   </li>
                   <li>
@@ -1591,6 +1755,62 @@ export default function Sandbox() {
                           </label>
                         </li>
                       </ul>
+                    </li>
+                  </ul>
+                )}
+              </li>
+              <li>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={toggleState.showCollectionCard}
+                    onChange={() =>
+                      updateToggles({
+                        showCollectionCard: !toggleState.showCollectionCard,
+                      })
+                    }
+                  />
+                  <span>Collection card</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="6"
+                    value={toggleState.collectionCardsCount}
+                    step="1"
+                    onChange={(e) => {
+                      const count = Math.min(
+                        6,
+                        Math.max(1, parseInt(e.target.value, 10) || 1),
+                      );
+                      updateToggles({
+                        collectionCardsCount: String(count),
+                      });
+                    }}
+                    disabled={!toggleState.showCollectionCard}
+                  />
+                </label>
+                {toggleState.showCollectionCard && (
+                  <ul>
+                    <li>
+                      <label>
+                        <span>Accounts count</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="25"
+                          value={toggleState.collectionAccountsCount}
+                          step="1"
+                          onChange={(e) => {
+                            const count = Math.max(
+                              0,
+                              parseInt(e.target.value, 10) || 0,
+                            );
+                            updateToggles({
+                              collectionAccountsCount: String(count),
+                            });
+                          }}
+                        />
+                      </label>
                     </li>
                   </ul>
                 )}

@@ -1,7 +1,7 @@
-import { pageCache } from 'workbox-recipes';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { ExpirationPlugin } from 'workbox-expiration';
 import * as navigationPreload from 'workbox-navigation-preload';
+import { pageCache } from 'workbox-recipes';
 import { RegExpRoute, registerRoute, Route } from 'workbox-routing';
 import {
   CacheFirst,
@@ -12,6 +12,10 @@ import {
 navigationPreload.enable();
 
 self.__WB_DISABLE_DEV_LOGS = true;
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 // Cache HTML pages
 pageCache({
@@ -151,6 +155,14 @@ const iconsRoute = new Route(
   new CacheFirst({
     cacheName: 'icons',
     plugins: [
+      // Only enable AssetHashPlugin in production
+      ...(import.meta.env.PROD
+        ? [
+            new AssetHashPlugin({
+              maxHashes: 2, // Keep only 2 most recent hashes of each icon
+            }),
+          ]
+        : []),
       new ExpirationPlugin({
         // Weirdly high maxEntries number, due to some old icons suddenly disappearing and not rendering
         // NOTE: Temporary fix
@@ -390,3 +402,44 @@ self.addEventListener('notificationclick', (event) => {
     })(),
   );
 });
+
+// WEB SHARE TARGET
+// ================
+
+let pendingShareData = null;
+self.addEventListener('message', (event) => {
+  console.log('💪 SW received event', event, pendingShareData);
+  const source = event.data?.type === 'client-ready' && event.source;
+  if (source && pendingShareData) {
+    source.postMessage({
+      type: 'share-target',
+      data: pendingShareData,
+      action: 'compose-with-shared-data',
+    });
+    pendingShareData = null;
+  }
+});
+
+registerRoute(
+  // Works with relative path
+  ({ url }) => url.pathname.endsWith('/share'),
+  async ({ request }) => {
+    console.log('💪 Handling share target POST request', request);
+    try {
+      const formData = await request.formData();
+      const sharedData = {
+        title: formData.get('title') || '',
+        text: formData.get('text') || '',
+        url: formData.get('url') || '',
+        files: formData.getAll('files'),
+        timestamp: Date.now(),
+      };
+      // Store pending data and redirect first
+      pendingShareData = sharedData;
+    } catch (e) {
+      console.error(e);
+    }
+    return Response.redirect('./', 303);
+  },
+  'POST',
+);

@@ -1,5 +1,7 @@
 import './app.css';
 
+import 'swiped-events';
+
 import { useLingui } from '@lingui/react';
 import debounce from 'just-debounce-it';
 import { lazy, memo, Suspense } from 'preact/compat';
@@ -11,15 +13,14 @@ import {
   Routes,
   useLocation,
 } from 'react-router-dom';
-
-import 'swiped-events';
-
 import { subscribe } from 'valtio';
 import { unstable_enableOp } from 'valtio/vanilla';
 
 // https://github.com/pmndrs/valtio/releases/tag/v2.3.0
 // Necessary for subscribe() to work properly
 unstable_enableOp(true);
+
+import './utils/toast-alert';
 
 import BackgroundService from './components/background-service';
 import ComposeButton from './components/compose-button';
@@ -32,14 +33,17 @@ import NotificationService from './components/notification-service';
 import SearchCommand from './components/search-command';
 import Shortcuts from './components/shortcuts';
 import NotFound from './pages/404';
+import AccountCollections from './pages/account-collections';
 import AccountStatuses from './pages/account-statuses';
 import AnnualReport from './pages/annual-report';
 import Bookmarks from './pages/bookmarks';
 import Catchup from './pages/catchup';
+import Collection from './pages/collection';
 import Favourites from './pages/favourites';
 import Filters from './pages/filters';
 import FollowedHashtags from './pages/followed-hashtags';
 import Following from './pages/following';
+import Following2 from './pages/following2';
 import Hashtag from './pages/hashtag';
 import Home from './pages/home';
 import HttpRoute from './pages/http-route';
@@ -75,8 +79,6 @@ import {
   getVapidKey,
   setCurrentAccountID,
 } from './utils/store-utils';
-
-import './utils/toast-alert';
 
 // Lazy load Sandbox component only in development
 const Sandbox =
@@ -120,15 +122,18 @@ window.__STATES_STATS__ = () => {
   console.warn('STATE stats', counts);
 
   const { statuses } = states;
-  const unmountedPosts = [];
-  for (const key in statuses) {
-    const $post = document.querySelector(
-      `[data-state-post-id~="${key}"], [data-state-post-ids~="${key}"]`,
-    );
-    if (!$post) {
-      unmountedPosts.push(key);
-    }
-  }
+  const mountedKeys = new Set();
+  document
+    .querySelectorAll('[data-state-post-id], [data-state-post-ids]')
+    .forEach(($post) => {
+      const id = $post.dataset.statePostId?.trim?.();
+      const ids = $post.dataset.statePostIds?.trim?.();
+      if (id) mountedKeys.add(id);
+      if (ids) ids.split(/\s+/).forEach((key) => mountedKeys.add(key));
+    });
+  const unmountedPosts = Object.keys(statuses).filter(
+    (key) => !mountedKeys.has(key),
+  );
   console.warn('Unmounted posts', unmountedPosts.length, unmountedPosts);
 };
 
@@ -141,16 +146,22 @@ setInterval(
     const { statuses, unfurledLinks, notifications } = states;
     let keysCount = 0;
     const { instance } = api();
+    const mountedKeys = new Set();
+    document
+      .querySelectorAll('[data-state-post-id], [data-state-post-ids]')
+      .forEach(($post) => {
+        const id = $post.dataset.statePostId;
+        const ids = $post.dataset.statePostIds;
+        if (id) mountedKeys.add(id);
+        if (ids) ids.split(/\s+/).forEach((key) => mountedKeys.add(key));
+      });
     for (const key in statuses) {
       if (!window.__IDLE__) break;
       try {
-        const $post = document.querySelector(
-          `[data-state-post-id~="${key}"], [data-state-post-ids~="${key}"]`,
-        );
         const postInNotifications = notifications.some(
           (n) => key === statusKey(n.status?.id, instance),
         );
-        if (!$post && !postInNotifications) {
+        if (!mountedKeys.has(key) && !postInNotifications) {
           delete states.statuses[key];
           delete states.statusQuotes[key];
           for (const link in unfurledLinks) {
@@ -600,6 +611,28 @@ function App() {
     }
   }, [uiState, isLoggedIn]);
 
+  // Signal to service worker that this client is ready to receive share data
+  useEffect(() => {
+    if (
+      'serviceWorker' in navigator &&
+      (isPWA || import.meta.env.DEV) &&
+      uiState === 'default'
+    ) {
+      navigator.serviceWorker
+        .getRegistration()
+        .then(function (registration) {
+          console.log('💪 Got SW registration', registration);
+          if (registration && registration.active) {
+            console.log('💪 Sending client-ready message to SW');
+            registration.active.postMessage({ type: 'client-ready' });
+          }
+        })
+        .catch(function (err) {
+          console.error('Could not get registration', err);
+        });
+    }
+  }, [isPWA, uiState]);
+
   if (/\/https?:/.test(location.pathname)) {
     return <HttpRoute />;
   }
@@ -704,6 +737,25 @@ function SecondaryRoutes() {
       matchPath('/s/:id', location.pathname)
     );
   }, [location.pathname, matchPath]);
+
+  // Persist prevLocation to sessionStorage while on a status/post page so it
+  // survives a page reload. Clear it when navigating away.
+  useEffect(() => {
+    if (isModalPage) {
+      if (states.prevLocation) {
+        store.session.setJSON('prevLocation', {
+          pathname: states.prevLocation.pathname,
+          search: states.prevLocation.search,
+        });
+      }
+    } else {
+      if (states.prevLocation) {
+        states.prevLocation = null;
+      }
+      store.session.del('prevLocation');
+    }
+  }, [isModalPage]);
+
   if (isModalPage) {
     if (!backgroundLocation.current)
       backgroundLocation.current = getPrevLocation();
@@ -738,6 +790,14 @@ function SecondaryRoutes() {
         element={
           <AuthRoute>
             <Following />
+          </AuthRoute>
+        }
+      />
+      <Route
+        path="/_following2"
+        element={
+          <AuthRoute>
+            <Following2 />
           </AuthRoute>
         }
       />
@@ -837,7 +897,11 @@ function SecondaryRoutes() {
         }
       />
       <Route path="/:instance?/t/:hashtag" element={<Hashtag />} />
-      <Route path="/:instance?/a/:id" element={<AccountStatuses />} />
+      <Route path="/:instance?/a/:id">
+        <Route index element={<AccountStatuses />} />
+        <Route path="c" element={<AccountCollections />} />
+      </Route>
+      <Route path="/:instance?/c/:id" element={<Collection />} />
       <Route path="/:instance?/p">
         <Route index element={<Public />} />
         <Route path="l" element={<Public local />} />

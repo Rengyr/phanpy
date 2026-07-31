@@ -34,6 +34,7 @@ import groupNotifications, {
   massageNotifications2,
 } from '../utils/group-notifications';
 import handleContentLinks from '../utils/handle-content-links';
+import haptics from '../utils/haptics';
 import mem from '../utils/mem';
 import niceDateTime from '../utils/nice-date-time';
 import { getRegistration } from '../utils/push-notifications';
@@ -51,6 +52,25 @@ const NOTIFICATIONS_LIMIT = 80;
 const NOTIFICATIONS_GROUPED_LIMIT = 20;
 const emptySearchParams = new URLSearchParams();
 
+const SUPPORTED_NOTIFICATION_TYPES = [
+  'mention',
+  'status',
+  'reblog',
+  'follow',
+  'follow_request',
+  'favourite',
+  'poll',
+  'update',
+  'admin.sign_up',
+  'admin.report',
+  'severed_relationships',
+  'moderation_warning',
+  'quote',
+  'quoted_update',
+  'added_to_collection',
+  'collection_update',
+];
+
 const scrollIntoViewOptions = {
   block: 'start',
   inline: 'center',
@@ -64,17 +84,29 @@ const memSupportsGroupedNotifications = mem(
   },
 );
 
+const memSupportsFallbackNotifications = mem(
+  () => getAPIVersions()?.mastodon >= 10,
+  {
+    expires: 1000 * 60 * 5, // 5 minutes
+  },
+);
+
 function mastoFetchNotificationsIterable(opts = {}) {
   const { masto } = api();
+  const supportedTypes = memSupportsFallbackNotifications()
+    ? SUPPORTED_NOTIFICATION_TYPES
+    : undefined;
   if (memSupportsGroupedNotifications()) {
     // https://github.com/mastodon/mastodon/pull/29889
     return masto.v2.notifications.list({
       limit: NOTIFICATIONS_GROUPED_LIMIT,
+      supportedTypes,
       ...opts,
     });
   } else {
     return masto.v1.notifications.list({
       limit: NOTIFICATIONS_LIMIT,
+      supportedTypes,
       ...opts,
     });
   }
@@ -97,13 +129,15 @@ const NOTIFICATIONS_POLICIES = [
   'forNewAccounts',
   'forPrivateMentions',
   'forLimitedAccounts',
+  'forBots',
 ];
 const NOTIFICATIONS_POLICIES_TEXT = {
-  forNotFollowing: msg`You don't follow`,
-  forNotFollowers: msg`Who don't follow you`,
-  forNewAccounts: msg`With a new account`,
-  forPrivateMentions: msg`Who unsolicitedly private mention you`,
-  forLimitedAccounts: msg`Who are limited by server moderators`,
+  forNotFollowing: msg`People you don't follow`,
+  forNotFollowers: msg`People not following you`,
+  forNewAccounts: msg`New accounts`,
+  forPrivateMentions: msg`Unsolicited private mentions`,
+  forLimitedAccounts: msg`Moderated accounts`,
+  forBots: msg`Bot accounts`,
 };
 
 function Notifications({ columnMode }) {
@@ -117,12 +151,17 @@ function Notifications({ columnMode }) {
   const notificationAccessToken = searchParams.get('access_token');
   const [showMore, setShowMore] = useState(false);
   const [onlyMentions, setOnlyMentions] = useState(false);
+  const [showMentionsLink, setShowMentionsLink] = useState(false);
+  const [hasAnalyzedFirstLoad, setHasAnalyzedFirstLoad] = useState(false);
   const scrollableRef = useRef();
   const { nearReachEnd, scrollDirection, reachStart, nearReachStart } =
     useScroll({
       scrollableRef,
     });
-  const hiddenUI = scrollDirection === 'end' && !nearReachStart;
+  const hiddenUI =
+    snapStates.settings.autoHideBars &&
+    scrollDirection === 'end' &&
+    !nearReachStart;
   const [followRequests, setFollowRequests] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
 
@@ -198,6 +237,8 @@ function Notifications({ columnMode }) {
             },
           })
           .catch(() => {});
+
+        if (!columnMode) analyzeNotifications(groupedNotifications);
       } else {
         states.notifications.push(...groupedNotifications);
       }
@@ -245,6 +286,7 @@ function Notifications({ columnMode }) {
   const supportsFilteredNotifications = supports(
     '@mastodon/filtered-notifications',
   );
+  const supportsBotFilter = supports('@mastodon/notification-bot-filter');
   const [showNotificationsSettings, setShowNotificationsSettings] =
     useState(false);
   const [notificationsPolicy, setNotificationsPolicy] = useState({});
@@ -263,6 +305,84 @@ function Notifications({ columnMode }) {
   function fetchNotificationsRequest() {
     return masto.v1.notifications.requests.list();
   }
+
+  const analyzeNotifications = (notifications) => {
+    // Once Mentions link is shown, don't need to analyze again
+    if (showMentionsLink) return;
+
+    const totalNotifications = notifications.length;
+    const totalActualNotifications = notifications.reduce(
+      (sum, n) => sum + (n.notificationsCount || 1),
+      0,
+    );
+    const totalMentions = notifications.filter(
+      (n) => n.type === 'mention',
+    ).length;
+    const mentionsCountPerDay = {};
+    const notificationCountPerDay = {};
+    notifications.forEach((n) => {
+      const { createdAt, notificationsCount, type } = n;
+      const date = new Date(createdAt).toDateString();
+      notificationCountPerDay[date] =
+        (notificationCountPerDay[date] || 0) + (notificationsCount || 1);
+      if (type === 'mention') {
+        mentionsCountPerDay[date] = (mentionsCountPerDay[date] || 0) + 1;
+      }
+    });
+    const mentionsPercentage =
+      totalNotifications > 0 ? totalMentions / totalNotifications : 0;
+    // Show mentions link if:
+    // - < 33% mentions OR
+    const littleMentions = mentionsPercentage < 0.33;
+    // - > 30 mentions in a day
+    const tooManyMentionsPerDay = Object.values(mentionsCountPerDay).some(
+      (count) => count > 30,
+    );
+    // - > 30 on any grouped notification (notificationCount > 30)
+    const tooManyNotificationsPerGroupNotification = notifications.some(
+      (n) => n.notificationsCount > 30,
+    );
+    // - > 30 notifications per hour
+    const notificationCountPerHour = {};
+    let tooManyNotificationsPerHour = false;
+    for (const n of notifications) {
+      const { createdAt, notificationsCount } = n;
+      const date = new Date(createdAt);
+      const hourKey = date.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+      notificationCountPerHour[hourKey] =
+        (notificationCountPerHour[hourKey] || 0) + (notificationsCount || 1);
+      if (notificationCountPerHour[hourKey] > 30) {
+        tooManyNotificationsPerHour = true;
+        break;
+      }
+    }
+    setShowMentionsLink(
+      littleMentions ||
+        tooManyMentionsPerDay ||
+        tooManyNotificationsPerGroupNotification ||
+        tooManyNotificationsPerHour,
+    );
+    setHasAnalyzedFirstLoad(Date.now());
+
+    // [DEBUG]
+    console.log(
+      '🔔 Notifications analysis:',
+      {
+        totalNotifications,
+        totalActualNotifications,
+        totalMentions,
+        notificationCountPerDay,
+        notificationCountPerHour,
+        mentionsPercentage,
+      },
+      {
+        littleMentions,
+        tooManyMentionsPerDay,
+        tooManyNotificationsPerGroupNotification,
+        tooManyNotificationsPerHour,
+      },
+    );
+  };
 
   const loadNotifications = (firstLoad) => {
     setShowNew(false);
@@ -488,7 +608,12 @@ function Notifications({ columnMode }) {
     },
     {
       useKey: true,
-      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
+      ignoreEventWhen: (e) =>
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey ||
+        e.shiftKey ||
+        e.key.toLowerCase() !== 'j',
     },
   );
 
@@ -525,7 +650,12 @@ function Notifications({ columnMode }) {
     },
     {
       useKey: true,
-      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
+      ignoreEventWhen: (e) =>
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey ||
+        e.shiftKey ||
+        e.key.toLowerCase() !== 'k',
     },
   );
 
@@ -540,7 +670,36 @@ function Notifications({ columnMode }) {
     },
     {
       useKey: true,
-      ignoreEventWhen: (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey,
+      ignoreEventWhen: (e) => {
+        // 'enter' doesn't need key validation (physical key, layout-independent)
+        if (e.key === 'Enter') return false;
+        return (
+          e.metaKey ||
+          e.ctrlKey ||
+          e.altKey ||
+          e.shiftKey ||
+          e.key.toLowerCase() !== 'o'
+        );
+      },
+    },
+  );
+
+  const dotRef = useHotkeys(
+    '.',
+    () => {
+      loadNotifications(true);
+      scrollableRef.current?.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      });
+    },
+    {
+      useKey: true,
+      ignoreEventWhen: (e) => {
+        // Allow '.' even with Shift (some keyboard layouts require Shift for '.')
+        if (e.key === '.') return false;
+        return e.metaKey || e.ctrlKey || e.altKey || e.shiftKey;
+      },
     },
   );
 
@@ -562,6 +721,7 @@ function Notifications({ columnMode }) {
         jRef.current = node;
         kRef.current = node;
         oRef.current = node;
+        dotRef.current = node;
       }}
       tabIndex="-1"
     >
@@ -802,18 +962,30 @@ function Notifications({ columnMode }) {
             </div>
           </div>
         )}
-        <div id="mentions-option">
-          <label>
-            <input
-              type="checkbox"
-              checked={onlyMentions}
-              onChange={(e) => {
-                setOnlyMentions(e.target.checked);
-              }}
-            />{' '}
-            <Trans>Only mentions</Trans>
-          </label>
-        </div>
+        {!!hasAnalyzedFirstLoad && (
+          <div id="mentions-option">
+            {showMentionsLink ? (
+              <Link to="/mentions" class="button plain">
+                <Icon icon="at" />{' '}
+                <span>
+                  <Trans>Mentions</Trans>
+                </span>{' '}
+                <Icon icon="arrow-right" class="more-insignificant" />
+              </Link>
+            ) : (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={onlyMentions}
+                  onChange={(e) => {
+                    setOnlyMentions(e.target.checked);
+                  }}
+                />{' '}
+                <Trans>Only mentions</Trans>
+              </label>
+            )}
+          </div>
+        )}
         <h2 class="timeline-header">
           <Trans>Today</Trans>{' '}
           <small class="insignificant bidi-isolate">{todaySubHeading}</small>
@@ -956,6 +1128,7 @@ function Notifications({ columnMode }) {
                     forNewAccounts,
                     forPrivateMentions,
                     forLimitedAccounts,
+                    forBots,
                   } = e.target;
                   const newPolicy = {
                     ...notificationsPolicy,
@@ -965,6 +1138,9 @@ function Notifications({ columnMode }) {
                     forPrivateMentions: forPrivateMentions.value,
                     forLimitedAccounts: forLimitedAccounts.value,
                   };
+                  if (supportsBotFilter) {
+                    newPolicy.forBots = forBots?.value;
+                  }
                   setNotificationsPolicy(newPolicy);
                   setShowNotificationsSettings(false);
                   (async () => {
@@ -978,10 +1154,12 @@ function Notifications({ columnMode }) {
                 }}
               >
                 <p>
-                  <Trans>Filter out notifications from people:</Trans>
+                  <Trans>Filter notifications from:</Trans>
                 </p>
                 <div class="notification-policy-fields">
-                  {NOTIFICATIONS_POLICIES.map((key) => {
+                  {NOTIFICATIONS_POLICIES.filter(
+                    (key) => key !== 'forBots' || supportsBotFilter,
+                  ).map((key) => {
                     const value = notificationsPolicy[key];
                     return (
                       <div key={key}>
@@ -1212,6 +1390,7 @@ function NotificationRequestButtons({ request, onChange }) {
         type="button"
         disabled={uiState === 'loading' || hasRequestState}
         onClick={() => {
+          haptics.trigger('success');
           setUIState('loading');
           (async () => {
             try {
@@ -1242,6 +1421,7 @@ function NotificationRequestButtons({ request, onChange }) {
         disabled={uiState === 'loading' || hasRequestState}
         class="light danger"
         onClick={() => {
+          haptics.trigger('light');
           setUIState('loading');
           (async () => {
             try {

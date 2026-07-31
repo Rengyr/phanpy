@@ -1,8 +1,8 @@
 import { memo } from 'preact/compat';
 import { useEffect } from 'preact/hooks';
 
-import { ICONS } from './ICONS';
 import { ICON_NAMESPACE, useIconSprite } from './icon-sprite-manager';
+import { ICONS } from './ICONS';
 
 const SIZES = {
   xs: 8,
@@ -72,7 +72,7 @@ function Icon({
           width={iconSize}
           height={iconSize}
           role={title ? 'img' : 'presentation'}
-          aria-labelledby={titleID}
+          aria-labelledby={title ? titleID : undefined}
           style={{
             transform: `${rotate ? `rotate(${rotate})` : ''} ${
               flip ? `scaleX(-1)` : ''
@@ -91,6 +91,7 @@ export default memo(Icon, (prevProps, nextProps) => {
   return (
     prevProps.icon === nextProps.icon &&
     prevProps.title === nextProps.title &&
-    prevProps.alt === nextProps.alt
+    prevProps.alt === nextProps.alt &&
+    prevProps.size === nextProps.size
   );
 });
